@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.spring.yesorno.dao.ICommentDao"> 	
+
+	<insert id="insertComment">
+		INSERT INTO comments_tb(COMMENT_ID,COMMENT_OWNED_BOARD_ID,COMMENT_WRITER_MEMBER_ID,
+		COMMENT_WRITTEN_DATE,COMMENT_CONTENT,COMMENT_BASE_CNT,COMMENT_STEP_CNT)
+		VALUES(0,#{commentOwnedBoardId},#{commentWriterMemberId},#{commentWrittenDate},#{commentContent},
+		#{commentBaseCnt},#{commentStepCnt});
+	</insert>
+
+</mapper>

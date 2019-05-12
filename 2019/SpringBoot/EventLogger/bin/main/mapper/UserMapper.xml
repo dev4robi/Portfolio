@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+	"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.evtlogger.mapper.UserMapper">
+
+	<insert id="insert_user" parameterType="com.evtlogger.dao.UserDao">
+		INSERT INTO user(userId, userName, userJoinDate, userLastLoginDate, userSignoutDate)
+		VALUES(#{userId}, #{userName}, #{userJoinDate}, #{userLastLoginDate}, #{userSignoutDate});
+	</insert>
+	
+	<select id="select_user" resultType="com.evtlogger.dao.UserDao">
+		SELECT *
+		FROM user
+		WHERE userId = #{userId};
+	</select>
+	
+	<update id="update_user_login">
+		UPDATE user
+		SET userLastLoginDate = #{userLastLoginDate}
+		WHERE userId = #{userId};
+	</update>
+	
+	<update id="update_user_singout">
+		UPDATE user
+		SET userLastLoginDate = #{userSignoutDate}
+		WHERE userId = #{userId};		
+	</update>
+
+</mapper>

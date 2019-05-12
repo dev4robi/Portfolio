@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<codes lang="kr">
+    <!-- 경조사 종류 (000-999) -->
+    <code code="000" name="테스트 경조사"/>
+    <code code="001" name="결혼식"/>
+    <code code="002" name="생일"/>
+    <code code="003" name="장례식"/>
+    <code code="004" name="환갑"/>
+    <code code="005" name="칠순"/>
+    <code code="006" name="팔순"/>
+    <code code="007" name="구순"/>
+    <code code="008" name="돌잔치"/>
+    <code code="009" name="백일잔치"/>
+    <code code="010" name="어버이날"/>
+    <code code="011" name="졸업식"/>
+    <code code="999" name="기타"/>
+    <!-- 관계 종류 (1000-9999) -->
+    <code code="1000" name="테스트 관계"/>
+    <code code="1001" name="가족"/>
+    <code code="1003" name="동료"/>
+    <code code="1002" name="동기"/>
+    <code code="1007" name="친구"/>
+    <code code="1004" name="선후배"/>
+    <code code="1005" name="친척"/>
+    <code code="1006" name="지인"/>
+    <code code="9999" name="기타"/>
+</codes>

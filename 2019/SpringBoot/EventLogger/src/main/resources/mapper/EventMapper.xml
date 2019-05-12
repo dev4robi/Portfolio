@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+	"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.evtlogger.mapper.EventMapper">
+
+	<select id="select_event_by_offset_count" resultType="com.evtlogger.dao.EventDao">
+		SELECT *
+		FROM event
+		WHERE evtWriteUserSeq = #{userSeq}
+		<choose>
+		  <when test="payType != null and payType.equals('outgo')">
+            AND event.payAmount <![CDATA[>=]]> 0
+		  </when>
+		  <when test="payType != null and payType.equals('income')">
+            AND event.payAmount <![CDATA[<]]> 0
+		  </when>
+		  <otherwise></otherwise>
+		</choose>
+		LIMIT #{offset}, #{count};
+	</select>
+	
+	<select id="select_event" resultType="com.evtlogger.dao.EventDao">
+		SELECT *
+		FROM event
+		WHERE evtSeq = #{evtSeq}
+	</select>
+	
+	<insert id="insert_event" parameterType="com.evtlogger.dao.EventDao">
+		INSERT INTO event(evtDate,evtWriteUserSeq,evtTgtUserSeq,evtTgtUserName,
+			evtTgtUserPhoneNum,evtTypeCode,relationTypeCode,payAmount,evtMemo)
+		VALUES(#{evtDate},#{evtWriteUserSeq},#{evtTgtUserSeq},#{evtTgtUserName},
+			#{evtTgtUserPhoneNum},#{evtTypeCode},#{relationTypeCode},#{payAmount},#{evtMemo});
+	</insert>
+	
+	<update id="update_event" parameterType="com.evtlogger.dao.EventDao">
+		UPDATE event
+		SET evtDate=#{evtDate},evtTgtUserSeq=#{evtTgtUserSeq},
+			evtTgtUserName=#{evtTgtUserName},evtTgtUserPhoneNum=#{evtTgtUserPhoneNum},
+			evtTypeCode=#{evtTypeCode},relationTypeCode=#{relationTypeCode},
+			payAmount=#{payAmount},evtMemo=#{evtMemo}
+		WHERE evtSeq = #{evtSeq};
+	</update>
+	
+	<delete id="delete_event">
+		DELETE FROM event
+		WHERE evtSeq = #{evtSeq};
+	</delete>
+	
+</mapper>

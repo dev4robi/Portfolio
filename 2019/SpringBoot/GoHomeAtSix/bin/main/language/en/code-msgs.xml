@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<codes lang="en">
+    <!-- (00:Type/000:Sequence) -->
+    <!-- Common (00000) -->
+    <code code="00000" msg="OK"/>
+    
+    <!-- Etc (99999) -->
+    <code code="99999" msg="Unknown error has occurred."/>
+</codes>

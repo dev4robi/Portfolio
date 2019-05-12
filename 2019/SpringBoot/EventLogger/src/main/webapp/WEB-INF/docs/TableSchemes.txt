@@ -1,0 +1,26 @@
+// 1. 유저 테이블 (user)
+CREATE TABLE `db_event_logger_test`.`user` (
+  `userSeq` INT NOT NULL AUTO_INCREMENT,        -- 유저 시퀀스
+  `userId` VARCHAR(64) NOT NULL,                -- 유저 아이디
+  `userName` VARCHAR(32) NOT NULL,              -- 유저 이름
+  `userJoinDate` DATETIME NOT NULL,             -- 유저 가입 일자
+  `userLastLoginDate` DATETIME,                 -- 유저 마지막 로그인 일자
+  `userSignoutDate` DATETIME,                   -- 유저 탈퇴 일자
+  PRIMARY KEY (`userSeq`),
+  UNIQUE INDEX `userId_UNIQUE` (`userId` ASC)
+);
+
+// 2. 경조사 테이블 (event)
+CREATE TABLE `db_event_logger_test`.`event` (
+  `evtSeq` BIGINT NOT NULL AUTO_INCREMENT,      -- 경조사 시퀀스
+  `evtDate` DATETIME NOT NULL,                  -- 경조사 일시
+  `evtWriteUserSeq` INT NOT NULL,               -- 경조사 작성 유저 시퀀스
+  `evtTgtUserSeq` INT NULL,                     -- 경조사 대상 유저 시퀀스
+  `evtTgtUserName` VARCHAR(32) NOT NULL,        -- 경조사 대상 유저 이름
+  `evtTgtUserPhoneNum` VARCHAR(16) NULL,        -- 경조사 대상 유저 연락처
+  `evtTypeCode` INT NOT NULL,                   -- 경조사 종류
+  `relationTypeCode` INT NOT NULL,              -- 경조사 대상과의 관계
+  `payAmount` BIGINT NOT NULL,                  -- 경조 지불 금액
+  `evtMemo` VARCHAR(256) NULL,                  -- 경조사 세부 메모
+  PRIMARY KEY (`evtSeq`)
+);

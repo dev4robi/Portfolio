@@ -1,0 +1,6 @@
+<ServerSettings>
+[TargetLPS] 50.0 [/TargetLPS]
+[SessionStartDelay] 15000 [/SessionStartDelay]
+[SessionFinishTime] 330000 [/SessionFinishTime]
+[SessionPlayerSyncWaitingTime] 3000 [/SessionPlayerSyncWaitingTime]
+</ServerSettings>

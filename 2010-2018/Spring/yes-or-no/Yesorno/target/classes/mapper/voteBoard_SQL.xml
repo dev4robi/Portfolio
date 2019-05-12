@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.spring.yesorno.dao.IVoteBoardDao"> 	
+
+	<select id="selectVoteBoardRowCount" resultType="_int">
+		SELECT COUNT(*) FROM vote_boards_tb;
+	</select>
+
+	<select id="selectVoteBoard" resultType="com.spring.yesorno.dto.VoteBoardDto">
+		SELECT * FROM vote_boards_tb
+		WHERE VOTE_BOARD_ID=#{param1};
+	</select>
+
+	<select id="selectVoteBoardList" resultType="com.spring.yesorno.dto.VoteBoardDto">
+		SELECT * FROM vote_boards_tb
+		ORDER BY VOTE_BOARD_ID DESC LIMIT #{param1},#{param2};
+	</select>
+	
+	<insert id="insertVoteBoard">
+		INSERT INTO vote_boards_tb(VOTE_BOARD_ID,WRITER_MEMBER_ID,VOTE_BOARD_WRITTEN_DATE,
+		VOTE_BOARD_VIEW_CNT,VOTE_BOARD_TITLE,VOTE_BOARD_CONTENT,VOTE_BOARD_IMAGE_URL,VOTE_END_DATE,VOTE_END_CNT)
+		VALUES(0,#{writerMemberId},#{voteBoardWrittenDate},#{voteBoardViewCnt},#{voteBoardTitle},
+		#{voteBoardContent},#{voteBoardImageURL},#{voteEndDate},#{voteEndCnt});
+	</insert>
+
+	<update id="updateVoteBoardContent">
+		UPDATE vote_boards_tb SET VOTE_BOARD_CONTENT=#{param2}
+		WHERE VOTE_BOARD_ID=#{param1};
+	</update>
+
+	<delete id="deleteVoteBoard">
+		DELETE FROM vote_boards_tb
+		WHERE VOTE_BOARD_ID=#{param1};
+	</delete>
+
+</mapper>

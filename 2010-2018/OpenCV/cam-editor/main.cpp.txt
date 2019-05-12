@@ -1,0 +1,591 @@
+#define _CRT_SECURE_NO_WARNINGS
+
+// Header files.
+#include <iostream>
+#include "opencv.hpp"
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+using namespace cv;
+using namespace std;
+
+// Define new type.
+typedef struct range {
+	float min;
+	float max;
+} range;
+
+// Global variables.
+bool g_testMode = true;	// 테스트 모드 사용 여부.
+
+// 옵션 윈도우의 이름.
+const char *opStr2 = "02 Histogram Stretching Option";
+const char *opStr3 = "03 Gamma Conversion Option";
+const char *opStr4 = "04 Unsharpen Masking Option";
+const char *opStr5 = "05 HUE Selection Option";
+
+Mat camFrame;			// 카메라로부터 받아온 원본 영상 메트릭스.
+Mat effectFrame;		// 원본 영상에 옵션 효과가 더해진 영상 메트릭스.
+VideoCapture cam;		// 카메라 디바이스. 
+int g_camWidth = 0;		// 영상 가로 폭.
+int g_camHeight = 0;	// 영상 세로 높이.
+float g_camFPS = 21.0;	// 영상 프레임.
+				// 원본 영상, 히스토그램 평활화, 히스토그램 스트레치, 감마 변경, 언샤픈 마스킹, HUE.
+enum CAM_OPTION { CAM_ORIGIN, CAM_HISTOEQUAL, CAM_HISTOSTRETCH, CAM_GAMMA, CAM_UNSHARPEN, CAM_HUE };
+int g_camOption = CAM_ORIGIN; // 트랙바로 조정하는 캠 옵션.
+bool g_recording = false;				// 영상의 저장 여부.
+VideoWriter originWriter, effectWriter;	// 원본 영상, 효과가 더해진 영상 저장을 위한 객체.
+
+// 01 Histogram Equalization.
+bool g1_showGraph = false;
+
+// 02 Histogram stretching.
+int g2_min = 100;
+int g2_max = 150;
+uchar g2_LUT[256];
+
+// 03 Gamma conversion.
+int g3_gamma = 10;
+
+// 04 Unsharpen masking.
+int g4_sigma = 5;
+
+// 05 HUE selection.
+int g5_margin = 20;
+int g5_hueVal = 0;
+
+// Function prototypes.
+void destoryOptionWindow();							// 모든 옵션 윈도우 파괴.
+void destoryTestModeWindow();						// 모든 테스트용 윈도우 파괴.
+void onMouseEventMain(int event, int x, int y, int flags, void *userData);	// 메인에서의 마우스 이벤트 액션 함수.
+void onTrackbarSlideMain(int pos, void *userData);	// 메인 함수 윈도우의 트랙바.
+void onTrackbarSlide2Min(int pos, void *userData);	// 히스토그램 스트레칭의 미니멈 트랙바.
+void onTrackbarSlide2Max(int pos, void *userData);	// 히스토그램 스트레칭의 맥시멈 트랙바.
+void onTrackbarSlide3(int pos, void *userData);		// 영상 감마값 변환.
+void onTrackbarSlide4(int pos, void *userData);		// 영상 시그마값 변환.
+void onTrackbarSlide5(int pos, void *userData);		// 영상 마진값 변환.
+int getMaxHist(int *histGraph);						// 히스토그램 영상 그래프 배열의 최고치를 반환.
+void sd_equalizeHistogram(Mat src, Mat dst);		// 자체 제작 히스토그램 균등화 함수.
+void effectHistoEqual();		// 히스토그램 균등화 효과.
+void sd_imadjust(Mat *src, Mat *dst, range input_range, range output_range, float gamma); // 히스토그램 스트레칭과 감마 변환을 하기 위한 함수.
+void effectHistoStretch();		// 히스토그램 스트레칭.
+void effectGamma();				// 감마값 변환.
+void effectUnsharpen();			// 언샤픈 마스킹.
+int getCorrectAngle(int i);		// 입력된 수를 0~359 사이의 값으로 변환하여 반환.
+void effectHUE();				// 특정 HUE값만 컬러영상.
+void keyboardAction(char ch);	// 입력받은 키 값에 해당하는 액션 수행.
+
+// Functions.
+void destoryOptionWindow() {
+	destroyWindow("HistoGraph_BeforeEqalization");
+	destroyWindow("HistoGraph_AfterEqalization");
+	destroyWindow(opStr2);
+	destroyWindow(opStr3);
+	destroyWindow(opStr4);
+	destroyWindow(opStr5);
+}
+
+void destoryTestModeWindow() {
+	destroyWindow("TestModeImg1");
+	destroyWindow("TestModeImg2");
+	destroyWindow("TestModeImg3");
+	destroyWindow("TestModeImg4");
+	destroyWindow("TestModeImg5");
+}
+
+void onMouseEventMain(int event, int x, int y, int flags, void *userData) {	// 메인에서의 마우스 이벤트 액션 함수.
+	// Hue 변경 효과일 때.
+	if (g_camOption == CAM_HUE) {
+		if (x >= 0 && y >= 0 && x < camFrame.cols && y < camFrame.rows) { // 충돌 반경 제어.
+			Mat HSVmat;
+			camFrame.copyTo(HSVmat);
+			cvtColor(HSVmat, HSVmat, CV_RGB2HSV);
+			g5_hueVal = HSVmat.at<Vec3b>(y, x)[0];
+			g5_hueVal *= 2;
+			if (g_testMode) {
+				printf(" > [TestMode] Mouse: %d, %d / Hue: %d\n", x, y, g5_hueVal);
+				for (int i = 0; i < 10; i++) {
+					line(camFrame, Point(i, 0), Point(i, 10), Scalar(camFrame.at<Vec3b>(y, x)[0], camFrame.at<Vec3b>(y, x)[1], camFrame.at<Vec3b>(y, x)[2]));
+					line(camFrame, Point(i+10, 0), Point(i+10, 10), Scalar(HSVmat.at<Vec3b>(y, x)[0], HSVmat.at<Vec3b>(y, x)[1], HSVmat.at<Vec3b>(y, x)[2]));
+				}
+				imshow("TestModeImg3", camFrame);
+			}
+		}
+	}
+}
+
+void onTrackbarSlideMain(int pos, void *userData) {	// 메인 함수 윈도우의 트랙바.
+	destoryOptionWindow();
+	destoryTestModeWindow();
+	switch (pos) {
+		case 0:
+			g_camOption = CAM_ORIGIN;
+			printf(" > 0. 원본 영상 출력.\n");
+			break;
+		case 1:
+			g_camOption = CAM_HISTOEQUAL;
+			printf(" > 1. 히스토그램 평활화 영상 출력.\n");
+			break;
+		case 2:
+			g_camOption = CAM_HISTOSTRETCH;
+			// 히스토그램 스트레칭 옵션 트랙바 생성.
+			namedWindow(opStr2, WINDOW_AUTOSIZE);
+			resizeWindow(opStr2, 750, 90);
+			createTrackbar("Min", opStr2, 0, 255, onTrackbarSlide2Min);
+			createTrackbar("Max", opStr2, 0, 255, onTrackbarSlide2Max);
+			setTrackbarPos("Min", opStr2, g2_min);
+			setTrackbarPos("Max", opStr2, g2_max);
+			printf(" > 2. 히스토그램 스트레칭 영상 출력.\n");
+			break;
+		case 3:
+			g_camOption = CAM_GAMMA;
+			// 감마 변경 옵션 트랙바 생성.
+			namedWindow(opStr3, WINDOW_AUTOSIZE);
+			resizeWindow(opStr3, 750, 45);
+			createTrackbar("Gamma/10.0", opStr3, 0, 30, onTrackbarSlide3); // (0.1 ~ 3.0)
+			setTrackbarPos("Gamma/10.0", opStr3, g3_gamma);
+			printf(" > 3. 감마 변환 영상 출력.\n");
+			break;
+		case 4:
+			g_camOption = CAM_UNSHARPEN;
+			// 언샤픈 마스킹 감마값 변경 옵션 트랙바 생성.
+			namedWindow(opStr4, WINDOW_AUTOSIZE);
+			resizeWindow(opStr4, 750, 45);
+			createTrackbar("Sigma", opStr4, 0, 70, onTrackbarSlide4); // (0.1 ~ 7.0)
+			setTrackbarPos("Sigma", opStr4, g4_sigma);
+			printf(" > 4. 언샤픈 마스킹 영상 출력.\n");
+			break;
+		case 5:
+			g_camOption = CAM_HUE;
+			// HUE 선택 마진값 변경 옵션 트랙바 생성.
+			namedWindow(opStr5, WINDOW_AUTOSIZE);
+			resizeWindow(opStr5, 750, 45);
+			createTrackbar("Margin", opStr5, 0, 179, onTrackbarSlide5);
+			setTrackbarPos("Margin", opStr5, g5_margin);
+			printf(" > 5. 특정 hue(색상)만 취하고 그 외는 무채색인 영상 출력.\n");
+			break;
+		default: break;
+	}
+}
+
+void onTrackbarSlide2Min(int pos, void *userData) {	// 히스토그램 스트레칭의 미니멈 트랙바.
+	int i = 0;
+
+	g2_min = pos;
+	if (g2_min > g2_max) { // Min은 Max를 초과하지 않음.
+		setTrackbarPos("Min", opStr2, g2_max);
+		g2_min = g2_max;
+	}
+}
+
+void onTrackbarSlide2Max(int pos, void *userData) {	// 히스토그램 스트레칭의 맥시멈 트랙바.
+	int i = 0;
+
+	g2_max = pos;
+	if (pos < g2_min) { // Max는 Min미만으로 떨어지지 않음.
+		setTrackbarPos("Max", opStr2, g2_min);
+		g2_max = g2_min;
+	}
+}
+
+void onTrackbarSlide3(int pos, void *userData) {	// 영상 감마값 변환.
+	g3_gamma = pos;
+	if (g3_gamma == 0) { // Gamma의 최소값은 1(0.1)임.
+		setTrackbarPos("Gamma", opStr3, 1);
+		g3_gamma = 1;
+	}
+}
+
+void onTrackbarSlide4(int pos, void *userData) {	// 영상 시그마값 변환.
+	g4_sigma = pos;
+	if (g4_sigma < 1) { // Sigma의 최소값은 1.
+		setTrackbarPos("Sigma", opStr4, 1);
+		g4_sigma = 1;
+	}
+}
+
+void onTrackbarSlide5(int pos, void *userData) {	// 영상 마진값 변환.
+	g5_margin = pos;
+}
+
+int getMaxHist(int *histGraph) { // 히스토그램 영상 그래프 배열의 최고치를 반환.
+	int max = 0;
+
+	for (int i = 0; i <= 255; i++) {
+		if (histGraph[i] > max)
+			max = histGraph[i];
+	}
+	return max;
+}
+
+void sd_equalizeHistogram(Mat *src, Mat *dst) { // 자체 제작 히스토그램 균등화 함수.
+	int distFunc[256] = { 0 };			 // 1. 계조치 분포함수.
+	int cumDistFunc[256] = { 0 };		 // 2. 누적분포함수.
+	float norCumDistFunc[256] = { 0.0 }; // 3. 정규화 누적분포함수.
+	int mapFunc[256] = { 0 };			 // 4. 매핑 함수.
+	int width = 0, height = 0, size = 0; // 전달 영상의 크기 정보.
+	int max = 0;						 // 가장 높은 계조치 값.
+	int hist = 0;						 // 계조치 정보.
+	int cnt = 0;						 // 누적 분포를 구하기 위한 변수.
+
+	// Step 0 : 필요한 변수들을 초기화한다.
+	width = src->cols;
+	height = src->rows;
+	size = width * height;
+
+	// Step 1 : 계조치 분포함수를 구한다.
+	for (int i = 0; i < size; i++) {
+		hist = src->at<uchar>(i);
+		distFunc[hist]++;
+	}
+
+	// Step 2 : 누적 분포함수를 그린다.
+	for (int i = 0; i <= 255; i++) {
+		cnt += distFunc[i];
+		cumDistFunc[i] = cnt;
+	}
+
+	// Step 3 : 누적 분포함수 중 제일 큰 값을 나누어서 정규화 누적분포함수를 구한다.
+	max = getMaxHist(cumDistFunc);
+	for (int i = 0; i <= 255; i++) {
+		norCumDistFunc[i] = cumDistFunc[i] / (float)max;
+	}
+
+	// Step 4 : 정규화 누적분포함수에 255를 곱하고 반올림한 매핑 함수를 만든다.
+	for (int i = 0; i <= 255; i++) {
+		mapFunc[i] = (int)(norCumDistFunc[i] * 255.0 + 0.5);
+	}
+
+	// Step 5 : 매핑 함수로 입력 영상의 화소 값을 출력 화소의 값으로 변환시킨다.
+	for (int i = 0; i < size; i++) {
+		dst->at<uchar>(i) = mapFunc[dst->at<uchar>(i)];
+	}
+}
+
+void effectHistoEqual() {	// 히스토그램 균등화 효과.
+	// 표 출력을 위한 변수.
+	int j = 0;
+	int histGraph[256] = { 0 };
+	Mat histoGraph(Size(800, 300), CV_8UC1, Scalar(255, 255, 255));
+	Mat histoEquGraph(Size(800, 300), CV_8UC1, Scalar(255, 255, 255));
+	uchar hist = 0;
+	int width = 0;
+	int height = 0;
+	int size = 0;
+	int max = 0;
+	float normal = 0;
+	char str[64];
+	char eqlStr[64];
+	// 균등화를 위한 변수.
+	Mat tempMat;
+	camFrame.copyTo(tempMat);
+	cvtColor(tempMat, tempMat, CV_RGB2GRAY);
+
+	if (g_testMode) imshow("TestModeImg1", tempMat);
+	
+	// 히스토그램 균등화.
+	// equalizeHist(tempMat, effectFrame); // OpenCV 함수.
+	tempMat.copyTo(effectFrame);
+	sd_equalizeHistogram(&tempMat, &effectFrame); // 자체 제작 함수.
+
+	// 그래프 표시.
+	if (g1_showGraph == true) {
+		// 원본 흑백 영상.
+		width = tempMat.cols;
+		height = tempMat.rows;
+		size = width * height;
+
+		for (int i = 0; i < size; i++) {
+			hist = tempMat.at<uchar>(i);
+			histGraph[hist]++;
+		}
+
+		max = getMaxHist(histGraph);
+
+		for (int i = 0; i <= 255; i++) {
+			j += 3;
+			normal = ((float)histoGraph.rows * ((float)histGraph[i] / (float)max));
+			line(histoGraph, Point(j, histoGraph.rows), Point(j, histoGraph.rows - normal * 0.9), Scalar(0, 0, 0));
+		}
+		sprintf(str, "Max: %d", max);
+		putText(histoGraph, str, Point(10, 15), CV_FONT_HERSHEY_PLAIN, 1.0, Scalar(0, 0, 0));
+		imshow("HistoGraph_BeforeEqalization", histoGraph);
+
+		// 공유 변수 초기화.
+		j = 0;
+		for (int i = 0; i <= 255; i++) histGraph[i] = 0;
+
+		// 균등화 흑백 영상.
+		width = effectFrame.cols;
+		height = effectFrame.rows;
+		size = width * height;
+
+		for (int i = 0; i < size; i++) {
+			hist = effectFrame.at<uchar>(i);
+			histGraph[hist]++;
+		}
+
+		max = getMaxHist(histGraph);
+
+		for (int i = 0; i <= 255; i++) {
+			j += 3;
+			normal = ((float)histoEquGraph.rows * ((float)histGraph[i] / (float)max));
+			line(histoEquGraph, Point(j, histoEquGraph.rows), Point(j, histoEquGraph.rows - normal * 0.9), Scalar(0, 0, 0));
+		}
+		sprintf(eqlStr, "Max: %d", max);
+		putText(histoEquGraph, eqlStr, Point(10, 15), CV_FONT_HERSHEY_PLAIN, 1.0, Scalar(0, 0, 0));
+		imshow("HistoGraph_AfterEqalization", histoEquGraph);
+	}
+}
+
+void sd_imadjust(Mat *src, Mat *dst, range input_range, range output_range, float gamma) { // 히스토그램 스트레칭과 감마 변환을 하기 위한 함수.
+	int i = 0, j = 0;
+	input_range.min *= 255;
+	input_range.max *= 255;
+	output_range.min *= 255;
+	output_range.max *= 255;
+
+	// 1. Look Up Table (LUT) 생성.
+	if (output_range.min == 0 && output_range.max == 255) { }
+	else {
+		for (i = 0; i < output_range.min; i++)
+			g2_LUT[i] = 0;		// min 이하의 값은 0
+		for (i = output_range.max; i <= 255; i++)
+			g2_LUT[i] = 255;	// max 이상의 값은 255
+		for (i = output_range.min; i < output_range.max; i++)	{
+			g2_LUT[i] = (unsigned char)((float)i * 255.0 / (float)(output_range.max - output_range.min)
+						- (255.0 * output_range.min / (float(output_range.max - output_range.min))));
+		}
+
+		// 2. 히스토그램 스트래칭 적용.
+		for (j = 0; j < dst->rows; j++) {
+			for (i = 0; i < dst->cols; i++) {
+				dst->at<Vec3b>(j, i)[0] = g2_LUT[src->at<Vec3b>(j, i)[0]];
+				dst->at<Vec3b>(j, i)[1] = g2_LUT[src->at<Vec3b>(j, i)[1]];
+				dst->at<Vec3b>(j, i)[2] = g2_LUT[src->at<Vec3b>(j, i)[2]];
+			}
+		}
+	}
+
+	// 3. 감마값 적용.
+	if (gamma != 0.0) {
+		double inverse_gamma = 1.0 / gamma;
+
+		Mat lut_matrix(1, 256, CV_8UC1);	// Look up table 메트릭스.
+		uchar *ptr = lut_matrix.ptr();		// 룩업 테이블의 시작점을 가리킴.
+		for (int i = 0; i < 256; i++)
+			ptr[i] = (int)(pow((double)i / 255.0, inverse_gamma) * 255.0); // ((double)((i / 255)^inverse_gamma) * 255.0)
+
+		if (g_testMode) imshow("TestModeImg1", lut_matrix);	// 테이블 확인용 테스트 코드.
+
+		LUT(*dst, lut_matrix, *dst);	// 흥미로운 함수를 발견하여 사용해 보았습니다.
+										// 원본 이미지에서 룩업테이블을 참조하여 감마효과를 더한 영상을 출력.
+	}
+}
+
+void effectHistoStretch() {	// 히스토그램 스트레칭.
+	Mat tempMat;
+	int	min = g2_min, max = g2_max;
+	int i, j;
+	range input_range, output_range;
+	input_range.min = 0;
+	input_range.max = 1.0;
+	output_range.min = g2_min / 255.0;
+	output_range.max = g2_max / 255.0;
+
+	camFrame.copyTo(tempMat);
+	camFrame.copyTo(effectFrame);
+	
+	sd_imadjust(&tempMat, &effectFrame, input_range, output_range, 0.0);
+}
+
+void effectGamma() {	// 감마값 변환.
+	Mat tempMat;
+	double gamma = g3_gamma / 10.0;		// 정수 -> 실수
+	range input_range, output_range;
+	input_range.min = 0;
+	input_range.max = 1.0;
+	output_range.min = 0;
+	output_range.max = 1.0;
+
+	camFrame.copyTo(tempMat);
+	camFrame.copyTo(effectFrame);
+
+	sd_imadjust(&tempMat, &effectFrame, input_range, output_range, gamma);
+}
+
+void effectUnsharpen() {	// 언샤픈 마스킹.
+	Mat tempMat1, tempMat2;
+	camFrame.copyTo(tempMat1);
+	if (g4_sigma < 1) {	// 시그마 최저값은 1로 보정.
+		g4_sigma = 1;
+	}
+	// 원본 영상에 블러링.
+	GaussianBlur(tempMat1, tempMat1, Size(25, 25), g4_sigma / 10.0);
+	if (g_testMode) imshow("TestModeImg1", tempMat1);
+	// 원본 영상에서 블러링 영상을 빼서 고주파 성분 추출.
+	tempMat2 = (camFrame - tempMat1);
+	if (g_testMode) imshow("TestModeImg2", tempMat2);
+	// 원본 영상에 추출된 고주파 성분 추가하여 효과 영상에 저장.
+	effectFrame = (camFrame + tempMat2);
+}
+
+int getCorrectAngle(int i) { // 입력된 수를 0~359 사이의 값으로 변환하여 반환.
+	if (i >= 0)
+		return (i % 360);
+	else
+		return (360 - (abs(i) % 360));
+}
+
+bool isBetweenAngle(int target, int firstAngle, int secondAngle) {
+	if (firstAngle > secondAngle) {
+		if (target <= secondAngle || target >= firstAngle) return true;
+	}
+	else {
+		if (target >= firstAngle && target <= secondAngle) return true;
+	}
+
+	return false;
+}
+
+void effectHUE() {	// 특정 HUE값만 컬러영상.
+	Mat BGRMat, HSVMat, monoMat;
+	int hue = 0;
+	// 원본 영상을 카피.
+	camFrame.copyTo(BGRMat);
+	camFrame.copyTo(HSVMat);
+	camFrame.copyTo(monoMat);
+	// HSV, mono 영상으로 전환.
+	cvtColor(HSVMat, HSVMat, CV_RGB2HSV);
+	cvtColor(monoMat, monoMat, CV_RGB2GRAY);
+	cvtColor(monoMat, monoMat, CV_GRAY2RGB);
+	if (g_testMode) imshow("TestModeImg1", monoMat);
+	if (g_testMode) imshow("TestModeImg2", camFrame);
+	// HSV색상에서 특정 색상각을 가진 부분을 제외하고 모노 영상의 데이터에 원본 색상(RGBMat)을 참고하여 적용.
+	for (int i = 0; i < HSVMat.rows; i++) {
+		for (int j = 0; j < HSVMat.cols; j++) {
+			hue = (HSVMat.at<Vec3b>(i, j)[0] * 2.0); // Hue (y-axis, x-axis)
+			if (isBetweenAngle(hue, getCorrectAngle(g5_hueVal - g5_margin), getCorrectAngle(g5_hueVal + g5_margin)) == true) {
+				monoMat.at<Vec3b>(i, j)[0] = BGRMat.at<Vec3b>(i, j)[0];
+				monoMat.at<Vec3b>(i, j)[1] = BGRMat.at<Vec3b>(i, j)[1];
+				monoMat.at<Vec3b>(i, j)[2] = BGRMat.at<Vec3b>(i, j)[2];
+			}
+		}
+	}
+	// 생성된 모노+색상 이미지를 효과 영상에 복사.
+	monoMat.copyTo(effectFrame);
+}
+
+void keyboardAction(char ch) {
+	switch (ch) {
+		// 테스트 모드.
+		case 'T':	case 't':
+			(g_testMode == true) ? (g_testMode = false) : (g_testMode = true);
+			if (g_testMode == true) printf(" >> 테스트 모드를 활성화합니다.\n");
+			else {
+				destoryTestModeWindow();
+				printf(" >> 테스트 모드를 비활성화합니다.\n");
+			}
+			break;
+		// 프로그램 종료.
+		case 'Q':	case 'q':
+			if (g_recording == true) {	// 영상 저장중이면.
+				printf(" > 영상 저장 후 프로그램을 종료합니다.");
+				originWriter.release();
+				effectWriter.release();
+			}
+			else {	// 영상 저장중이 아니면.
+				printf(" > 프로그램을 종료합니다.\n");
+			}
+			cam.release();
+			exit(0);
+			break;
+		// 영상 녹화 시작.
+		case 'R':	case 'r':
+			if (g_recording == false) {
+				g_recording = true;
+				originWriter.open("outputOrigin.avi", CV_FOURCC('D', 'I', 'V', 'X'), g_camFPS, CvSize(g_camWidth, g_camHeight));
+				effectWriter.open("outputEffect.avi", CV_FOURCC('D', 'I', 'V', 'X'), g_camFPS, CvSize(g_camWidth, g_camHeight));
+				printf(" > 영상 녹화를 시작합니다. Q키를 눌러 프로그램을 종료하면 영상이 저장됩니다.\n");
+			}
+			else {
+				printf(" > 이미 영상 녹화를 수행중입니다.\n");
+			}
+			break;
+		// 히스토그램 평활화 그래프 표시.
+		case 'G':	case 'g':
+			destroyWindow("HistoGraph_BeforeEqalization");
+			destroyWindow("HistoGraph_AfterEqalization");
+			(g1_showGraph == true) ? (g1_showGraph = false) : (g1_showGraph = true);
+			printf(" > 01. 히스토그램 표를 ");
+			(g1_showGraph == true) ? printf("표시합니다.\n") : printf("숨깁니다.\n");
+			break;
+	}
+}
+
+// Main function.
+int main() {
+	char inputCh;
+
+	namedWindow("CamEditor", WINDOW_AUTOSIZE);							// 영상 출력을 위한 메인 윈도우 생성.
+	createTrackbar("Option", "CamEditor", 0, 5, onTrackbarSlideMain);	// 트랙바 부착 함수.
+	setMouseCallback("CamEditor", onMouseEventMain);					// 마우스 이벤트 액션 함수.
+	
+	if (cam.open(0) == false) {	// 카메라 장치 감지 실패.
+		printf(" > Error: Fail to open cam device.\n");
+		return -1;
+	}
+	else { // 카메라 장치 감지 성공.
+		g_camWidth = cam.get(CV_CAP_PROP_FRAME_WIDTH);
+		g_camHeight = cam.get(CV_CAP_PROP_FRAME_HEIGHT);
+		printf(" > [ Welcome to the CamEditor! ]\n");
+		printf(" >> 트랙바 조정: 영상 효과 부여 / [R]: 영상 저장 시작 / [Q]: 프로그램 종료\n"); 
+		printf(" >> 트랙바 옵션 (0~5)\n");
+		printf("   0. 원본 영상 출력.\n");
+		printf("   1. 히스토그램 평활화 영상 출력.\n");
+		printf("   2. 히스토그램 스트레칭 영상 출력.\n");
+		printf("   3. 감마 변환 영상 출력.\n");
+		printf("   4. 언샤픈 마스킹 영상 출력.\n");
+		printf("   5. 특정 hue만 취하고 그 외는 무채색인 영상 출력.\n\n");
+	}
+
+	while (1) {
+		// 카메라로부터 영상 받아옴.
+		if (cam.read(camFrame) == false) { // 영상 받아오기 실패 여부 확인. 
+			printf(" > Error: Faile to read cam data.\n");
+			return -1;
+		}
+		// 영상 효과 적용.
+		switch (g_camOption) {
+			case 0:							break;
+			case 1:	effectHistoEqual();		break;
+			case 2:	effectHistoStretch();	break;
+			case 3:	effectGamma();			break;
+			case 4:	effectUnsharpen();		break;
+			case 5:	effectHUE();			break;
+			default:						break;
+		}
+		// 영상 출력.
+		if (g_camOption == 0) { // 원본 영상 출력 옵션이면 원본 메트릭스 출력.
+			imshow("CamEditor", camFrame);
+		}
+		else {	// 효과 영상 출력이면 효과 메트릭스 출력.
+			if (effectFrame.data != NULL)
+				imshow("CamEditor", effectFrame);
+		}
+		// 영상 녹화.
+		if (g_recording == true) {
+			originWriter.write(camFrame);
+			if (effectFrame.data != NULL)
+				effectWriter.write(effectFrame);
+			else
+				effectWriter.write(camFrame);
+		}
+		// 프레임 대기 및 키입력 받음.
+		keyboardAction((inputCh = waitKey(1000.0 / g_camFPS)));
+	}
+
+	cam.release();
+	originWriter.release();
+	effectWriter.release();
+	return 0;
+}

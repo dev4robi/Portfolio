@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN" "HTTP://mybatis.org/dtd/mybatis-3-config.dtd">
+
+<configuration>
+
+	<!-- 기본정보 셋팅 -->
+	<settings>
+		<setting name="cacheEnabled" value="true" />
+		<setting name="lazyLoadingEnabled" value="true" />
+		<setting name="aggressiveLazyLoading" value="true" />
+		<setting name="useGeneratedKeys" value="true" />
+		<setting name="defaultExecutorType" value="REUSE" />
+		<setting name="defaultStatementTimeout" value="300" />
+		<setting name="localCacheScope" value="SESSION" />
+		<setting name="mapUnderscoreToCamelCase" value="true" />	<!-- mysql:MEMBER_ID ==[mapping]==> java:memberId -->
+		<setting name="callSettersOnNulls" value="false"/>			<!-- select 결과값이 null이면 key생성 안함 --> 
+	</settings>
+
+	<typeAliases></typeAliases>
+
+</configuration>
+
+<!-- 출처: http://lemontia.tistory.com/406 [이것저것 기웃거리는 개발자 입니다]  -->

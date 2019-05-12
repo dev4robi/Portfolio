@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.evtlogger.mapper.StatisticsMapper">
+    <select id="select_statistic_by_userSeq" resultType="com.evtlogger.dao.EventDao">
+        SELECT *
+        FROM event
+        WHERE evtWriteUserSeq = #{userSeq};
+    </select>
+    <select id="select_statistic_by_tgtUserName" resultType="com.evtlogger.dao.EventDao">
+        SELECT *
+        FROM event
+        WHERE evtWriteUserSeq = #{userSeq} AND evtTgtUserName like '${tgtUserName}%';
+    </select>
+    <select id="select_statistic_by_tgtPhoneNum" resultType="com.evtlogger.dao.EventDao">
+        SELECT *
+        FROM event
+        WHERE evtWriteUserSeq = #{userSeq} AND evtTgtUserPhoneNum = '${tgtUserPhoneNum}';
+    </select>
+</mapper>

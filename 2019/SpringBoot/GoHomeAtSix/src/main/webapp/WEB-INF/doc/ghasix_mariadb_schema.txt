@@ -1,0 +1,41 @@
+-- Service: Go Home At Six (ghasix)
+-- Last Modified: 2019.05.04
+-- Version: 1.0.0
+-- db_ghasix_test : db_ghasix_test
+
+CREATE DATABASE db_ghasix_test;
+USE db_ghasix_test;
+
+-- 회원 테이블
+CREATE TABLE `db_ghasix_test`.`users` (
+  `id`              BIGINT NOT NULL AUTO_INCREMENT, -- 고유 ID
+  `email`           VARCHAR(128) NOT NULL,          -- 고유 메일주소 (RFC 2822에 따르면 320자까지 가능하지만 utf8mb4체어셋 한계로 크기 제한)
+  `name`            VARCHAR(64) NOT NULL,           -- 이름
+  `access_level`    INT NOT NULL DEFAULT '1',       -- 권한등급
+  `status`          INT NOT NULL,                   -- 계정상태 (탈퇴,일반,휴면)
+  `join_time`       BIGINT NOT NULL,                -- 가입일자
+  `last_login_time` BIGINT,                         -- 마지막 로그인 일자
+  `accessible_time` BIGINT,                         -- 서비스 접근가능 시점의 시간
+
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `users_uk_idx_email` (`email` ASC)
+);
+
+-- 출퇴근 테이블
+CREATE TABLE `db_ghasix_test`.`commutes` (
+  `id`                   BIGINT NOT NULL AUTO_INCREMENT, -- 고유 ID
+  `own_user_id`          BIGINT NOT NULL,                -- 소유 유저 ID
+  `commute_company_name` VARCHAR(64) NOT NULL,           -- 출퇴근 회사 이름
+  `check_in_time`        BIGINT NOT NULL,                -- 출근시간
+  `check_out_time`       BIGINT,                         -- 퇴근시간
+  `memo`                 VARCHAR(256),                   -- 메모
+
+  PRIMARY KEY (`id`),
+  CONSTRAINT `commutes_fk_own_user_id`
+    FOREIGN KEY (`own_user_id`) REFERENCES `db_ghasix_test`.`users` (`id`)
+    ON DELETE NO ACTION
+    ON UPDATE CASCADE
+);
+
+-- 테스트용 관리자 계정
+INSERT INTO users(email,name,access_level,status,join_time,last_login_time,accessible_time) VALUES("robi9202@gmail.com","이태훈",10000,0,1557230600000,0,0);

@@ -1,0 +1,132 @@
++=======================================================+=======================================================+
+| [ Common ]                                                                                                    |
++=======================================================+=======================================================+
+| DEFAULT_RESPONSE: {"_result":"SUCCESS","_resultCode":"00000","_resultMsg":"OK","_tId":"0","_version":"0.0.0"} |
++=======================================================+=======================================================+
+
++=======================================================+=======================================================+
+| [ User Services ]                                                                                             |
++=======================================================+=======================================================+
+| Service : User                                                                                                |
+| Method  : POST                                                                                                |
+| URL     : /user/signup/google                                                                                 |
+| ReqHead :                                                                                                     |
+| ReqBody : "idToken"                                                                                           |
+| Response: DEFAULT_RESPONSE                                                                                    |
+| Comment : 구글로 회원가입                                                                                     |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : User                                                                                                |
+| Method  : POST                                                                                                |
+| URL     : /user/login/google                                                                                  |
+| ReqHead :                                                                                                     |
+| ReqBody : "idToken"                                                                                           |
+| Response: "userJwt"                                                                                           |
+| Comment : 구글로 로그인                                                                                       |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : User                                                                                                |
+| Method  : POST                                                                                                |
+| URL     : /user/deregist                                                                                      |
+| ReqHead :                                                                                                     |
+| ReqBody : "idToken"                                                                                           |
+| Response: DEFAULT_RESPONSE                                                                                    |
+| Comment : 회원탈퇴                                                                                            |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+
++=======================================================+=======================================================+
+| [ Event Services ]                                                                                            |
++=======================================================+=======================================================+
+| Service : Event                                                                                               |
+| Method  : GET                                                                                                 |
+| URL     : /events/{payType}/page/{pageNum}                                                                    |
+| ReqHead : "userJwt"                                                                                           |
+| ReqBody :                                                                                                     |
+| Response: "eventList":[{"evtSeq","evtDate","evtTgtUserSeq","evtTgtUserName","evtTgtUserPhoneNum",             |
+|                         "evtTypeCode","relationTypeCode","payAmount","evtMemo","evtWriterUserSeq"},...]       |
+| Comment : pageNum에 해당하는 0-10개의 경조사 조회                                                             |
+|           - {payType}                                                                                         |
+|               "all" : 지출/수입 , "outgo" : 지출, "income" : 수입                                             |
++=======================================================+=======================================================+
+| Service : Event                                                                                               |
+| Method  : POST                                                                                                |
+| URL     : /events                                                                                             |
+| ReqHead :                                                                                                     |
+| ReqBody : "userJwt"                                                                                           |
+|           "eventDao":{"evtDate","evtTgtUserName","evtTgtUserPhoneNum","evtTypeCode",                          |
+|                       "relationTypeCode","payAmount","evtMemo"}                                               |
+| Response: DEFAULT_RESPONSE                                                                                    |
+| Comment : 경조사 새로 추가                                                                                    |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : Event                                                                                               |
+| Method  : PUT                                                                                                 |
+| URL     : /events/{evtSeq}                                                                                    |
+| ReqHead :                                                                                                     |
+| ReqBody : "userJwt"                                                                                           |
+|           "eventDao":{"evtDate","evtTgtUserName","evtTgtUserPhoneNum","evtTypeCode",                          |
+|                       "relationTypeCode","payAmount","evtMemo"}                                               |
+| Response: DEFAULT_RESPONSE                                                                                    |
+| Comment : 경조사 내용 수정                                                                                    |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : Event                                                                                               |
+| Method  : DELETE                                                                                              |
+| URL     : /events/{evtSeq}                                                                                    |
+| ReqHead :                                                                                                     |
+| ReqBody : "userJwt"                                                                                           |
+| Response: DEFAULT_RESPONSE                                                                                    |
+| Comment : 경조사 삭제                                                                                         |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+
++=======================================================+=======================================================+
+| [ Statistics Services ]                                                                                       |
++=======================================================+=======================================================+
+| Service : Statistics                                                                                          |
+| Method  : GET                                                                                                 |
+| URL     : /statistics                                                                                         |
+| ReqHead :                                                                                                     |
+| ReqBody :                                                                                                     |
+| Response: statistics.html                                                                                     |
+| Comment : 통계페이지 HTML UI 전송                                                                             |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : Statistics                                                                                          |
+| Method  : GET                                                                                                 |
+| URL     : /statistics/all                                                                                     |
+| ReqHead : "userJwt"                                                                                           |
+| ReqBody :                                                                                                     |
+| Response: "statistics":{"totalIncome","totalOutgo","resultMsg"}                                               |
+| Comment : 경조사 전체통계 전송(총수입/총지출/결과메시지)                                                      |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : Statistics                                                                                          |
+| Method  : GET                                                                                                 |
+| URL     : /statistics/name/{tgtName}                                                                          |
+| ReqHead : "userJwt"                                                                                           |
+| ReqBody :                                                                                                     |
+| Response: "statisticsList":[{"tgtName","totalIncome","totalOutgo","resultMsg"},...]                           |
+| Comment : {tgtName}과 관련된 통계 전송(이름/총수입/총지출/결과메시지)                                         |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+
+| Service : Statistics                                                                                          |
+| Method  : GET                                                                                                 |
+| URL     : /statistics/phone/{tgtPhoneNum}                                                                     |
+| ReqHead : "userJwt"                                                                                           |
+| ReqBody :                                                                                                     |
+| Response: "statisticsList":[{"tgtName","totalIncome","totalOutgo","resultMsg"},...]                           |
+| Comment : {tgtPhoneNum}와 관련된 통계 전송(이름/총수입/총지출/결과메시지)                                     |
+|                                                                                                               |
+|                                                                                                               |
++=======================================================+=======================================================+

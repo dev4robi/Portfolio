@@ -1,0 +1,1131 @@
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <iostream>
+#include <conio.h>
+#include <math.h>
+#include "excon.h"
+#include "opencv.hpp"
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+using namespace cv;
+using namespace std;
+
+typedef struct ROIloc {
+	Point locPt;	// 구역의 시작 지점.
+	Size locSize;	// 구역의 크기.
+	int effectId;	// 구역의 적용 효과.
+};
+
+// 프로그램 정보.
+const char *g_ver = "proto.v3";
+const char *g_mdate = "15.10.28";
+
+// 영상의 정보와 상태를 담을 전역 변수.
+char inVideoDir[] = "D:\\dip\\avis\\";	// 영상의 경로.
+char inVideoName[255];		// 입력 영상의 이름.
+VideoCapture inVideo;		// 입력 영상.
+Mat *g_curFrame;			// 영상 현재 화면의 포인터.
+int g_videoFramePos = 0;	// 영상의 현재 프레임 위치.
+
+// 저장할 영상을 위한 전역 변수.
+VideoWriter outVideo;	// 편집된 영역의 영상.
+VideoWriter cutVideo;	// 잘린 영역의 영상.
+
+// CUI 상태 정보.
+int g_playSpeed = 0;		// 영상의 재생 속도.
+bool isPlay = true;			// 영상 재생 유무.
+bool isCut = false;			// 영상 삭제 유무.
+bool cutHasbeenUse = false; // 영상 삭제 수행 여부.
+bool g_showInfo = false;	// 영상 정보 표시.
+int g_cropLoc = 0;			// 활성화된 갈무리 구역의 ID.
+bool isTestMode = false;	// 테스트 모드 활성화 여부.
+
+// 크로마키 정보.
+VideoCapture g_videoCam;			// 카메라 디바이스.
+bool useChromaKey = false;          // 크로마 키 사용
+int chromaPos = 0;					// 크로마키 위치. ( 0: 좌측 상단, 1: 우측 상단, 2: 좌측 하단, 3: 우측 하단, 4: 가운데 )
+int keyBaseColor = 0;				// 크로마키 베이스 색. (0: 청, 1: 녹, 2: 적)
+int chromaSize = 0;					// 크로마키 적용 사이즈. (0: 작게, 1: 중간, 2: 크게)
+int chromaAlpha = 0;				// 크로마키 투명도. (0: 100%, 1: 66%, 2: 33%)
+int chromaSensity;					// 크로마키 민감도.
+
+// 갈무리 정보를 담은 전역 변수.
+Point g_pt1, g_pt2;
+ROIloc roiLoc[4];
+
+// 함수 프로토타입.
+void onTrackbarSlide(int pos, void* userdata);
+void onMouseClick(int event, int x, int y, int flags, void* userdata);
+void showVideoInfo();
+void showChromaKeyCUI();
+void showLocEffectCUI();
+void clearMsg();
+void renewCUI();
+void drawCUI();
+void mosaic(Mat src, Mat dst, int size);
+void roiEffect(Mat *targetMat, bool isCrop);
+int RGB2HVS(float r, float g, float b, float *h, float *v, float *s);
+void chromaKey(Mat *g_curFrame);
+void keyAction(char ch);
+
+// 트렉바 콜백 함수.
+void onTrackbarSlide(int pos, void* userdata) {
+	if (isPlay == false) {
+		Mat trackbarMat;
+		if (pos > inVideo.get(CV_CAP_PROP_FRAME_COUNT))
+			pos = inVideo.get(CV_CAP_PROP_FRAME_COUNT);
+		inVideo.set(CAP_PROP_POS_FRAMES, pos);
+		if (inVideo.read(trackbarMat) != NULL) {
+			//trackbarMat.copyTo(*g_curFrame);
+			*g_curFrame = trackbarMat.clone();
+			imshow("MyVideoPlayer", trackbarMat);
+		}
+	}
+}
+
+// 마우스 콜백 함수.
+void onMouseClick(int event, int x, int y, int flags, void* userdata) {
+	static bool lButtonUp = true;	// L버튼의 상태 저장.
+	Mat copyFrame;
+	CvSize videoSize;
+	videoSize.width = inVideo.get(CV_CAP_PROP_FRAME_WIDTH);
+	videoSize.height = inVideo.get(CV_CAP_PROP_FRAME_HEIGHT);
+	
+	if (isPlay == false) { // 영상이 정지한 상태에서만 수행.
+		//g_curFrame->copyTo(copyFrame);	// 현재 프레임의 사본을 만듬.
+		copyFrame = g_curFrame->clone();
+		if (event == EVENT_LBUTTONDOWN) { // 왼쪽 마우스 선택 시.
+			lButtonUp = false;
+			g_pt1.x = x;
+			g_pt1.y = y;
+			if (g_pt2.x < 0) g_pt2.x = 0;
+			else if (g_pt2.x > videoSize.width) g_pt2.x = videoSize.width;
+			if (g_pt2.y < 0) g_pt2.y = 0;
+			else if (g_pt2.y > videoSize.height) g_pt2.y = videoSize.height;
+			clearMsg();
+			MoveCur(3, 1);
+			ChangeCR(CR_CYAN, CR_BLACK);
+			printf("선택 지점1 - x: %d, y: %d", g_pt1.x, g_pt1.y);
+		}
+		else if (event == EVENT_MOUSEMOVE && lButtonUp == false) { // 왼쪽 마우스 누른 채 이동 시.
+			g_pt2.x = x;
+			g_pt2.y = y;
+			if (g_pt2.x < 0) g_pt2.x = 0;
+			else if (g_pt2.x > videoSize.width) g_pt2.x = videoSize.width;
+			if (g_pt2.y < 0) g_pt2.y = 0;
+			else if (g_pt2.y > videoSize.height) g_pt2.y = videoSize.height;
+			//printf("이동중 - x: %d, y: %d\n", g_pt2.x, g_pt2.y);
+			// 구역 번호에 맞는 색깔의 사각형을 그림.
+			Scalar color;
+			if (g_cropLoc == 0) {
+				color = Scalar(0, 0, 255);
+			}
+			else if (g_cropLoc == 1) {
+				color = Scalar(0, 255, 0);
+			}
+			else if (g_cropLoc == 2) {
+				color = Scalar(255, 0, 255);
+			}
+			else if (g_cropLoc == 3) {
+				color = Scalar(255, 0, 0);
+			}
+			rectangle(copyFrame, g_pt1, g_pt2, color);
+			imshow("MyVideoPlayer", copyFrame);
+		}
+		else if (event == EVENT_LBUTTONUP) { // 왼쪽 마우스 뗄 시.
+			lButtonUp = true;
+			g_pt2.x = x;
+			g_pt2.y = y;
+			if (g_pt2.x < 0) g_pt2.x = 0;
+			else if (g_pt2.x > videoSize.width) g_pt2.x = videoSize.width;
+			if (g_pt2.y < 0) g_pt2.y = 0;
+			else if (g_pt2.y > videoSize.height) g_pt2.y = videoSize.height;
+			clearMsg();
+			MoveCur(3, 1);
+			ChangeCR(CR_CYAN, CR_BLACK);
+			printf("선택 지점2 - x: %d, y: %d", g_pt2.x, g_pt2.y);
+			// 이미지를 갈무리함.
+			Point tempPt;
+			tempPt.x = min(g_pt1.x, g_pt2.x);	tempPt.y = min(g_pt1.y, g_pt2.y);
+			int cropHeight, cropWidth;
+			cropWidth = abs(g_pt1.x - g_pt2.x);
+			cropHeight = abs(g_pt1.y - g_pt2.y);
+			// 범위 보정
+			if (cropWidth > videoSize.width) cropWidth = videoSize.width;
+			if (cropHeight > videoSize.height) cropHeight = videoSize.height;
+			if (cropHeight < 10 || cropWidth < 10) {
+				clearMsg();
+				MoveCur(3, 1);
+				ChangeCR(CR_RED, CR_BLACK);
+				printf("갈무리할 이미지가 너무 작습니다. (%dx%d)", cropWidth, cropHeight);
+			}
+			else {
+				clearMsg();
+				MoveCur(3, 1);
+				ChangeCR(CR_CYAN, CR_BLACK);
+				// ROIloc 에 구역 정보 저장.
+				if (g_cropLoc == 0) {
+					roiLoc[0].locPt.x = tempPt.x;
+					roiLoc[0].locPt.y = tempPt.y;
+					roiLoc[0].locSize.width = cropWidth;
+					roiLoc[0].locSize.height = cropHeight;
+					Mat cropImg;
+					//g_curFrame->copyTo(cropOutputImg);
+					cropImg = g_curFrame->clone();
+					Mat cropOutputImg(cropImg, Rect(roiLoc[0].locPt.x, roiLoc[0].locPt.y, roiLoc[0].locSize.width, roiLoc[0].locSize.height));
+					// 영상 ROI 효과 적용.
+					roiEffect(&cropOutputImg, true);
+					destroyWindow("MyVideoPlayer - output.jpg");
+					imshow("MyVideoPlayer - output.jpg", cropOutputImg);
+					imwrite("output.jpg", cropOutputImg);
+					printf("이미지를 갈무리하였습니다. (%dx%d)", cropWidth, cropHeight);
+				}
+				else if (g_cropLoc == 1) {
+					printf("구역1을 지정하였습니다. (%dx%d)", cropWidth, cropHeight);
+					roiLoc[1].locPt.x = tempPt.x;
+					roiLoc[1].locPt.y = tempPt.y;
+					roiLoc[1].locSize.width = cropWidth;
+					roiLoc[1].locSize.height = cropHeight;
+				}
+				else if (g_cropLoc == 2) {
+					printf("구역2을 지정하였습니다. (%dx%d)", cropWidth, cropHeight);
+					roiLoc[2].locPt.x = tempPt.x;
+					roiLoc[2].locPt.y = tempPt.y;
+					roiLoc[2].locSize.width = cropWidth;
+					roiLoc[2].locSize.height = cropHeight;
+				}
+				else if (g_cropLoc == 3) {
+					printf("구역3을 지정하였습니다. (%dx%d)", cropWidth, cropHeight);
+					roiLoc[3].locPt.x = tempPt.x;
+					roiLoc[3].locPt.y = tempPt.y;
+					roiLoc[3].locSize.width = cropWidth;
+					roiLoc[3].locSize.height = cropHeight;
+				}
+			}
+		}		
+	}
+}
+
+// 영상 정보 출력.
+void showVideoInfo() {
+	static bool isText = false;
+	CvSize inVideoSize;
+	inVideoSize.width = inVideo.get(CV_CAP_PROP_FRAME_WIDTH);		 // 영상의 폭.
+	inVideoSize.height = inVideo.get(CV_CAP_PROP_FRAME_HEIGHT);		 // 영상의 높이.
+	double inVideoFPS = inVideo.get(CV_CAP_PROP_FPS);				 // 영상의 초당 프레임.
+	double inVideoTotalFrame = inVideo.get(CV_CAP_PROP_FRAME_COUNT); // 영상의 총 프레임 수.
+	double inVideoPlayTime = (inVideoTotalFrame / inVideoFPS);		 // 영상 총 재생 시간.
+
+	if (g_showInfo == true) { // 정보 표시를 함.
+		if (isText == false) { // 정보가 표시되어 있지 않을 때.
+			g_videoFramePos = inVideo.get(CV_CAP_PROP_POS_FRAMES);
+			MoveCur(0, 10);
+			ChangeCR(CR_WHITE, CR_BLACK);
+			printf("┌─────────────────────────────┐\n");
+			for (int i = 0; i < 7; i++) {
+				MoveCur(0, i + 11); printf("│");
+				MoveCur(60, i + 11); printf("│");
+			}
+			MoveCur(2, 11); printf(" > 영상 정보\n");
+			MoveCur(2, 12); printf("  - 제목: %s\n", inVideoName);
+			MoveCur(2, 13); printf("  - 길이: %.2f초\n", inVideoPlayTime);
+			MoveCur(2, 14); printf("  - 초당 프레임 수: %.4f\n", inVideoFPS);
+			MoveCur(2, 15); printf("  - 현재 프레임: %d/%d (%.1f%%)\n", g_videoFramePos, (int)inVideoTotalFrame, (g_videoFramePos * 100 / inVideoTotalFrame));
+			MoveCur(2, 16); printf("  - 폭: %d\n", inVideoSize.width);
+			MoveCur(2, 17); printf("  - 높이: %d\n", inVideoSize.height);
+			printf("└─────────────────────────────┘\n");
+			isText = true;
+		}
+		else { // 정보가 표시되어 있을 때.
+			if (isPlay == true) {
+				ChangeCR(CR_WHITE, CR_BLACK);
+				MoveCur(2, 15); printf("  - 현재 프레임: %d/%d (%.1f%%)   \n", g_videoFramePos, (int)inVideoTotalFrame, (g_videoFramePos * 100 / inVideoTotalFrame));
+			}
+		}
+	}
+	else { // 정보 표시를 하지 않음.
+		if (isText == true) { // 텍스트가 적혀 있으면 삭제.
+			isText = false;
+			MoveCur(0, 10);
+			printf("                                                              ");
+			for (int i = 0; i < 7; i++) {
+				MoveCur(0, i + 11);
+				printf("                                                              ");
+			}
+			MoveCur(0, 18); printf("                                                              ");
+		}
+	}
+};
+
+// 크로마키 효과 CUI.
+void showChromaKeyCUI() {
+	static bool isShow = false;
+	if (useChromaKey == true) isShow = true;
+	if (isShow == false) return;
+	MoveCur(0, 19);
+	if (useChromaKey == true) ChangeCR(CR_YELLOW, CR_BLACK);
+	else ChangeCR(CR_DGRAY, CR_BLACK);
+	printf("┌─────────────────────────────┐");
+	for (int i = 0; i < 6; i++) {
+		MoveCur(0, i + 20); printf("│");
+		MoveCur(60, i + 20); printf("│");
+	}
+	MoveCur(0, 26);
+	printf("└─────────────────────────────┘");
+
+	if (useChromaKey == true) ChangeCR(CR_WHITE, CR_BLACK);
+	else ChangeCR(CR_DGRAY, CR_BLACK);
+	MoveCur(4, 20);
+	printf("1. 크로마키 영상 크기(+): ");
+	if (chromaSize == 0) printf("소       ");
+	else if (chromaSize == 1) printf("중       ");
+	else if (chromaSize == 2) printf("영상 전체");
+	MoveCur(4, 21);
+	printf("2. 크로마키 투명도(*): ");
+	if (chromaAlpha == 0) printf("33%%");
+	else if (chromaAlpha == 1) printf("66%%");
+	else if (chromaAlpha == 2) printf("0%% ");
+	MoveCur(4, 22);
+	printf("3. 크로마키 배경색(/): ");
+	if (useChromaKey == true) {
+		if (keyBaseColor == 0) ChangeCR(CR_DGRAY, CR_BLUE);
+		else if (keyBaseColor == 1) ChangeCR(CR_DGRAY, CR_GREEN);
+		else if (keyBaseColor == 2) ChangeCR(CR_DGRAY, CR_RED);
+		else if (keyBaseColor == 3) ChangeCR(CR_DGRAY, CR_WHITE);
+	}
+	else ChangeCR(CR_DGRAY, CR_BLACK);
+	printf("    ");
+	if (useChromaKey == true) ChangeCR(CR_WHITE, CR_BLACK);
+	else ChangeCR(CR_DGRAY, CR_BLACK);
+	MoveCur(4, 23);
+	printf("4. 크로마키 위치(-): ");
+	if (chromaPos == 0) printf("좌측 상단");
+	else if (chromaPos == 1) printf("우측 상단");
+	else if (chromaPos == 2) printf("좌측 하단");
+	else if (chromaPos == 3) printf("우측 하단");
+	else if (chromaPos == 4) printf("가운데   ");
+	MoveCur(4, 24);
+	printf("5. 크로마키 색 민감도(.): ");
+	if (useChromaKey == true) {
+		if (chromaSensity >= 30 && chromaSensity < 60) ChangeCR(CR_DGREEN, CR_BLACK);
+		else if (chromaSensity >= 60 && chromaSensity < 90) ChangeCR(CR_GOLD, CR_BLACK);
+		else if (chromaSensity >= 90) ChangeCR(CR_DRED, CR_BLACK);
+	}
+	printf("%d  ", chromaSensity);
+}
+
+
+// 구역 효과 CUI.
+void showLocEffectCUI() {
+	// 테두리 그리기.
+	if (g_cropLoc == 0) ChangeCR(CR_RED, CR_BLACK);	// 어떤 갈무리 구역이 선택되어 있냐에 따라 테두리의 색이 변경됨.
+	else if (g_cropLoc == 1) ChangeCR(CR_GREEN, CR_BLACK);
+	else if (g_cropLoc == 2) ChangeCR(CR_PURPLE, CR_BLACK);
+	else if (g_cropLoc == 3) ChangeCR(CR_BLUE, CR_BLACK);
+	MoveCur(64, 10);  printf("┌───────────────────────┐");
+	for (int i = 0; i < 15; i++) {
+		MoveCur(64, i + 11); printf("│");
+		MoveCur(112, i + 11); printf("│");
+	}
+	MoveCur(64, 26);  printf("└───────────────────────┘");
+	// 효과 내용 그리기.
+	if (roiLoc[g_cropLoc].effectId == 0) ChangeCR(CR_GOLD, CR_BLACK);
+	else ChangeCR(CR_GRAY, CR_BLACK);
+	MoveCur(66, 11); printf("┌─────────────────────┐");
+	MoveCur(66, 12); printf("│     Normal Image (O)                     │");
+	MoveCur(66, 13); printf("└─────────────────────┘");
+	if (roiLoc[g_cropLoc].effectId == 1) ChangeCR(CR_GOLD, CR_BLACK);
+	else ChangeCR(CR_GRAY, CR_BLACK);
+	MoveCur(66, 14); printf("┌─────────────────────┐");
+	MoveCur(66, 15); printf("│     Mosaic (K)                           │");
+	MoveCur(66, 16); printf("└─────────────────────┘");
+	if (roiLoc[g_cropLoc].effectId == 2) ChangeCR(CR_GOLD, CR_BLACK);
+	else ChangeCR(CR_GRAY, CR_BLACK);
+	MoveCur(66, 17); printf("┌─────────────────────┐");
+	MoveCur(66, 18); printf("│     Gausian Blur (M)                     │");
+	MoveCur(66, 19); printf("└─────────────────────┘");
+	if (roiLoc[g_cropLoc].effectId == 3) ChangeCR(CR_GOLD, CR_BLACK);
+	else ChangeCR(CR_GRAY, CR_BLACK);
+	MoveCur(66, 20); printf("┌─────────────────────┐");
+	MoveCur(66, 21); printf("│     Sharpen Image (P)                    │");
+	MoveCur(66, 22); printf("└─────────────────────┘");
+	if (roiLoc[g_cropLoc].effectId == 4) ChangeCR(CR_GOLD, CR_BLACK);
+	else ChangeCR(CR_GRAY, CR_BLACK);
+	MoveCur(66, 23); printf("┌─────────────────────┐");
+	MoveCur(66, 24); printf("│     Invert Image (L)                     │");
+	MoveCur(66, 25); printf("└─────────────────────┘");
+}
+
+// 콘솔 명령창 청소.
+void clearMsg() {
+	MoveCur(2, 1);
+	Cprintf("│                                                                                                            │\n", CR_GRAY, CR_BLACK);
+}
+
+// 콘솔 UI 갱신.
+void renewCUI() {
+	static int term = 0;
+	if (++term == 9) {	term = 0;
+		// 재생/정지.
+		if (isPlay == true) {
+			ChangeCR(CR_YELLOW, CR_BLACK);
+			MoveCur(12, 4);	printf("┌───┐");
+			MoveCur(12, 5); printf("│  ||  │");
+			MoveCur(12, 6); printf("│ (SP) │");
+			MoveCur(12, 7); printf("└───┘");
+		}
+		else if (isPlay == false) {
+			ChangeCR(CR_GRAY, CR_BLACK);
+			MoveCur(12, 4);	printf("┌───┐");
+			MoveCur(12, 5); printf("│  ▶  │");
+			MoveCur(12, 6); printf("│ (SP) │");
+			MoveCur(12, 7); printf("└───┘");
+		}
+
+		// 갈무리.
+		if (isPlay == true ) ChangeCR(CR_DGRAY, CR_BLACK);
+		else ChangeCR(CR_GRAY, CR_BLACK);
+		MoveCur(34, 4); printf("┌───┐┌───┐┌───┐┌───┐");
+		MoveCur(34, 5); printf("│ CROP ││[LOC1]││[LOC2]││[LOC3]│");
+		MoveCur(34, 6); printf("└───┘│ (1)  ││ (2)  ││ (3)  │");
+		MoveCur(44, 7);           printf("└───┘└───┘└───┘");
+		
+		if (isPlay == false) {
+			showLocEffectCUI();	// 갈무리 영역에 입힐 효과 CUI.
+			if (g_cropLoc == 0) {
+				ChangeCR(CR_RED, CR_BLACK);
+				MoveCur(34, 4); printf("┌───┐");
+				MoveCur(34, 5); printf("│ CROP │");
+				MoveCur(34, 6); printf("└───┘");
+			}
+			else if (g_cropLoc == 1) {
+				ChangeCR(CR_GREEN, CR_BLACK);
+				MoveCur(44, 4); printf("┌───┐");
+				MoveCur(44, 5); printf("│[LOC1]│");
+				MoveCur(44, 6); printf("│ (1)  │");
+				MoveCur(44, 7); printf("└───┘");
+			}
+			else if (g_cropLoc == 2) {
+				ChangeCR(CR_PURPLE, CR_BLACK);
+				MoveCur(54, 4); printf("┌───┐");
+				MoveCur(54, 5); printf("│[LOC2]│");
+				MoveCur(54, 6); printf("│ (2)  │");
+				MoveCur(54, 7); printf("└───┘");
+			}
+			else if (g_cropLoc == 3) {
+				ChangeCR(CR_BLUE, CR_BLACK);
+				MoveCur(64, 4); printf("┌───┐");
+				MoveCur(64, 5); printf("│[LOC3]│");
+				MoveCur(64, 6); printf("│ (3)  │");
+				MoveCur(64, 7); printf("└───┘");
+			}
+		}
+
+		// 영상 편집.
+		if (isCut == true) {
+			ChangeCR(CR_YELLOW, CR_BLACK);
+			MoveCur(80, 4); printf("┌───┐");
+			MoveCur(80, 5); printf("│StpCut│");
+			MoveCur(80, 6); printf("│  (E) │");
+			MoveCur(80, 7); printf("└───┘");
+		}
+		else {
+			ChangeCR(CR_GRAY, CR_BLACK);
+			MoveCur(80, 4); printf("┌───┐");
+			MoveCur(80, 5); printf("│  CUT │");
+			MoveCur(80, 6); printf("│  (S) │");
+			MoveCur(80, 7); printf("└───┘");
+		}
+
+		// 영상 정보.
+		if (g_showInfo == true) {
+			ChangeCR(CR_YELLOW, CR_BLACK);
+		}
+		else {
+			ChangeCR(CR_GRAY, CR_BLACK);
+		}
+		MoveCur(90, 4); printf("┌───┐");
+		MoveCur(90, 5); printf("│ INFO │");
+		MoveCur(90, 6); printf("│  (F) │");
+		MoveCur(90, 7); printf("└───┘");
+
+		// 크로마키 사용.
+		if (useChromaKey == true) {
+			ChangeCR(CR_YELLOW, CR_BLACK);
+		}
+		else {
+			ChangeCR(CR_GRAY, CR_BLACK);
+		}
+		MoveCur(102, 4); printf("┌───┐");
+		MoveCur(102, 5); printf("│ C.Key│");
+		MoveCur(102, 6); printf("│  (Y) │");
+		MoveCur(102, 7); printf("└───┘");
+		showChromaKeyCUI();
+
+		// 영상 배속.
+		if (g_playSpeed > 0) {
+			if (g_playSpeed == 1) {
+				ChangeCR(CR_YELLOW, CR_BLACK);
+				MoveCur(22, 4); printf("┌───┐");
+				MoveCur(22, 5); printf("│ ▶▶ │");
+				MoveCur(22, 6); printf("│  (X) │");
+				MoveCur(22, 7); printf("└───┘");
+			}
+			else if (g_playSpeed = 2) {
+				ChangeCR(CR_RED, CR_BLACK);
+				MoveCur(22, 4); printf("┌───┐");
+				MoveCur(22, 5); printf("│▶▶▶│");
+				MoveCur(22, 6); printf("│  (X) │");
+				MoveCur(22, 7); printf("└───┘");
+			}
+
+		}
+		else if (g_playSpeed == 0) {
+			ChangeCR(CR_GRAY, CR_BLACK);
+			MoveCur(22, 4); printf("┌───┐"); MoveCur(2, 4); printf("┌───┐");
+			MoveCur(22, 5); printf("│ ▶▶ │"); MoveCur(2, 5); printf("│ ◀◀ │");
+			MoveCur(22, 6); printf("│  (X) │"); MoveCur(2, 6); printf("│ (Z)  │");
+			MoveCur(22, 7); printf("└───┘"); MoveCur(2, 7); printf("└───┘");
+		}
+		else if (g_playSpeed < 0) {
+			if (g_playSpeed == -1) {
+				ChangeCR(CR_YELLOW, CR_BLACK);
+				MoveCur(2, 4); printf("┌───┐");
+				MoveCur(2, 5); printf("│ ◀◀ │");
+				MoveCur(2, 6); printf("│ (Z)  │");
+				MoveCur(2, 7); printf("└───┘");
+			}
+			else if (g_playSpeed = -2) {
+				ChangeCR(CR_RED, CR_BLACK);
+				MoveCur(2, 4); printf("┌───┐");
+				MoveCur(2, 5); printf("│◀◀◀│");
+				MoveCur(2, 6); printf("│ (Z)  │");
+				MoveCur(2, 7); printf("└───┘");
+			}
+		}
+
+		ChangeCR(CR_GRAY, CR_BLACK);
+		MoveCur(2, 1);
+	}
+}
+
+void drawCUI() {
+	ConClr();
+	for (int i = 0; i < 16; i++) {
+		ChangeCR(i, CR_BLACK);
+		MoveCur(0, 0); printf("┌───────────────────────────────────────────────────────┐");
+		MoveCur(0, 1); printf("│                                                                                                              │");
+		MoveCur(0, 2); printf("└───────────────────────────────────────────────────────┘");
+		MoveCur(0, 3); printf("┌───────────────────────────────────────────────────────┐");
+		MoveCur(0, 4); printf("│┌───┐┌───┐┌───┐  ┌───┐┌───┐┌───┐┌───┐      ┌───┐┌───┐  ┌───┐│");
+		MoveCur(0, 5); printf("││ ◀◀ ││  ||  ││ ▶▶ │  │ CROP ││[LOC1]││[LOC2]││[LOC3]│      │  CUT ││ INFO │  │ C.Key││");
+		MoveCur(0, 6); printf("││ (Z)  ││ (SP) ││  (X) │  └───┘│ (1)  ││ (2)  ││ (3)  │      │  (S) ││  (F) │  │  (Y) ││");
+		MoveCur(0, 7); printf("│└───┘└───┘└───┘            └───┘└───┘└───┘      └───┘└───┘  └───┘│");
+		MoveCur(0, 8); printf("└───────────────────────────────────────────────────────┘");
+		MoveCur(0, 9); printf("  [ MyVideoPlayer %s / Last modified: %s ] [ Developed by SeoKyeong Univ. 2010305049 - TAE HOON LEE ] ", g_ver, g_mdate);
+		Sleep(50);
+	}
+	ChangeCR(CR_DGRAY, CR_BLACK);
+	MoveCur(0, 9); printf("  [ MyVideoPlayer %s / Last modified: %s ] [ Developed by SeoKyeong Univ. 2010305049 - TAE HOON LEE ] ", g_ver, g_mdate);
+}
+
+// 모자이크 함수.
+void mosaic(Mat src, Mat dst, int kSize) {
+	int width = src.rows;
+	int height = src.cols;
+	int kWidthCnt = (width / kSize) +1;		// 모자이크 가로 갯수.
+	int kHeightCnt = (height / kSize) +1;	// 모자이크 세로 갯수.
+
+	dst.cols = width;
+	dst.rows = height;
+
+	int _x, _y;								// 영상의 절대 좌표.
+	int cBlue = 0, cGreen = 0, cRed = 0;	// 각 픽셀의 정보를 저장.
+
+	for (int j = 0; j < kHeightCnt; j++) {			// 커널의 세로 갯수만큼.
+		for (int i = 0; i < kWidthCnt; i++) {		// 커널의 가로 갯수만큼.
+			for (int y = 0; y < kSize; y++) {		 // 커널의 세로 픽셀만큼.
+				for (int x = 0; x < kSize; x++) {	 // 커널의 가로 픽셀만큼.
+					_x = x + i * kSize;
+					_y = y + j * kSize;
+					if (_x < width && _y < height) {
+						cBlue += src.at<Vec3b>(_x, _y)[0];
+						cGreen += src.at<Vec3b>(_x, _y)[1];
+						cRed += src.at<Vec3b>(_x, _y)[2];
+					}
+				}
+			}
+			cBlue /= (kSize * kSize);
+			cGreen /= (kSize * kSize);
+			cRed /= (kSize * kSize);
+			for (int y = 0; y < kSize; y++) {
+				for (int x = 0; x < kSize; x++) {
+					if (_x < width && _y < height) {
+						_x = x + i * kSize;
+						_y = y + j * kSize;
+						dst.at<Vec3b>(_x, _y)[0] = cBlue;	// 목적지 매트릭스에 뿌려줌.
+						dst.at<Vec3b>(_x, _y)[1] = cGreen;
+						dst.at<Vec3b>(_x, _y)[2] = cRed;
+					}
+				}
+			}
+			cBlue = 0;
+			cGreen = 0;
+			cRed = 0;
+		}
+	}
+}
+
+// 영상의 ROI효과를 적용하는 함수.
+void roiEffect(Mat *targetMat, bool isCrop) {
+	Mat originFrame = *targetMat;	// 매개변수로 받은 영상의 현재 프레임을 링크.
+	Mat ROIframe;
+	int i = 0;
+	for ((isCrop == true) ? (i = 0) : (i = 1); i < 4; i++) {
+		if (isCrop == true) { // crop 인 경우. (이미 잘려져서 온 영상이기에 그대로 사용)
+			ROIframe = *targetMat;
+		}
+		else { // loc 인 경우. (구역 크기에 맞게 잘라야 함)
+			ROIframe = originFrame(Rect(roiLoc[i].locPt.x, roiLoc[i].locPt.y, roiLoc[i].locSize.width, roiLoc[i].locSize.height)); // 매개변수로 받은 영상에서 이 위치만을 링크.
+		}
+		// effectId에 따른 효과 부여.
+		if (roiLoc[i].locSize.width > 0 && roiLoc[i].locSize.height > 0) { // 해당 구역의 폭과 높이가 0보다 큰 경우에만 적용.
+			if (roiLoc[i].effectId == 0); // 아무것도 하지 않음.
+			else if (roiLoc[i].effectId == 1) { // 모자이크 (구 라플레시안).
+				//Laplacian(ROIframe, ROIframe, -1, 3);
+				Mat tempFrame = ROIframe.clone();
+				/*if (isTestMode) imshow("testmosaic0", ROIframe);							// 이미지 줄였다 늘리기 방식의 모자이크 (작동 안됨.)
+				resize(ROIframe, ROIframe, Size(ROIframe.cols / 2, ROIframe.rows / 2));
+				if (isTestMode) imshow("testmosaic1", ROIframe);
+				resize(ROIframe, ROIframe, Size(), 0.5, 0.5);*/
+				mosaic(tempFrame, ROIframe, 7);												// 평균값 계산을 이용한 모자이크.
+			}
+			else if (roiLoc[i].effectId == 2) { // 가우시안 블러.
+				GaussianBlur(ROIframe, ROIframe, Size(11, 11), 7.0);
+			}
+			else if (roiLoc[i].effectId == 3) { // 선명한 이미지.
+				Mat tempFrame1, tempFrame2;
+				//ROIframe.copyTo(tempFrame1); // 원본의 사본을 저장.
+				tempFrame1 = ROIframe.clone();
+				if (isTestMode) imshow("testshparp0", ROIframe);
+				GaussianBlur(tempFrame1, tempFrame1, Size(11, 11), 7.0); // 사본에 블러링.
+				if (isTestMode) imshow("testshparp1", tempFrame1);
+				tempFrame2 = (ROIframe - tempFrame1); // 원본에서 블러링한 사본 이미지를 뺌. (이미지의 외각선을 조금 더 선명히 잡아낸 이미지.)
+				if (isTestMode) imshow("testshparp2", tempFrame2);
+				ROIframe = (ROIframe + tempFrame2); // 그 이미지를 원본에 더해서 외각선을 선명하게 함.
+			}
+			else if (roiLoc[i].effectId == 4) { // 색 반전.
+				ROIframe = (Scalar(255, 255, 255) - ROIframe);
+			}
+		}
+		if (isCrop == true) break;	// Crop 명령을 실행 할 경우에는 나머지 배경 효과 적용하지 않고 반복문 종료.
+		//if (i != 0) imshow("MyVideoPlayer", *targetMat);	// crop을 제외한 loc이면 윈도우에 영상 출력. (지속적인 출력을 위함)
+	}
+	
+}
+
+// RGB색상을 HVS색상으로 바꿔주는 함수. ( H:0~360, V:0~100, S:0~100 )
+int RGB2HVS(float r, float g, float b, float *h, float *s, float *v) {
+	// r,g,b values are from 0 to 1
+	// h = [0,360], s = [0,100], v = [0,100]
+	// if s == 0, then h = -1 (undefined)
+	r /= 255;
+	g /= 255;
+	b /= 255;
+	float min, max, delta;
+	min = MIN(r, g, b);
+	max = MAX(r, g, b);
+	// V
+	*v = (max * 100);
+	delta = max - min;
+	// S
+	if (max != 0)
+		*s = ((delta / max) * 100);
+	else {
+		// r = g = b = 0 // s = 0, v is undefined
+		*s = 0;
+		*h = -1;
+		return -1;
+	}
+	// H
+	if (r == max)
+		*h = ((g - b) / delta); // between yellow & magenta
+	else if (g == max)
+		*h = 2 + (b - r) / delta; // between cyan & yellow
+	else
+		*h = 4 + (r - g) / delta; // between magenta & cyan
+	*h *= 60; // degrees
+	if (*h < 0)
+		*h += 360;
+}
+
+// 크로마 키 함수.
+void chromaKey() {
+	Mat camMat;							// 카메라 영상을 저장하는 메트릭스.
+	Mat chromaMat;						// 배경색을 뺀 영상을 넣을 매트릭스.
+	int sensity = chromaSensity;
+
+	if (!g_videoCam.isOpened()) {		// 카메라를 열 수 없으면.
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_RED, CR_BLACK);
+		printf("오류: 카메라 장치로부터 영상을 받아올 수 없습니다.");
+		g_videoCam.release();
+		useChromaKey = false;
+		return;
+	}
+
+	// 카메라의 영상을 받아옴.
+	g_videoCam.read(camMat);
+	if (camMat.cols <= 0 || camMat.rows <= 0) return;
+	if(isTestMode == true) imshow("camTest", camMat);
+
+	int   cB, cG, cR;   // 각 픽셀의 B, G, R 값을 의미.
+	float cH, cS, cV;	// 각 픽셀의 Hue(색상), Saturation(채도), Value(명도) 값을 의미.
+
+	for (int j = 0; j < camMat.cols; j++) {
+		for (int i = 0; i < camMat.rows; i++) {
+			// 각 필셀의 BGR값을 추출.
+			cB = camMat.at<Vec3b>(i, j)[0];
+			cG = camMat.at<Vec3b>(i, j)[1];
+			cR = camMat.at<Vec3b>(i, j)[2];
+			// 추출한 BGR 색 값을 HVS 색 값으로 변환.
+			RGB2HVS(cR, cG, cB, &cH, &cS, &cV);
+			// 필터링 값 보다 작을 시 해당 부분의 색을 0으로.
+			switch (keyBaseColor) {
+				case 0: // 청
+					if (cH >= (240 - sensity) && cH <= 240 + sensity) {	// 색이 파란색 범위 안.
+						if (cS >= 15) {									// 채도가 15% 이상.
+							if (cV >= 15) {								// 명도가 15% 이상.
+								camMat.at<Vec3b>(i, j)[0] = 0;
+								camMat.at<Vec3b>(i, j)[1] = 0;
+								camMat.at<Vec3b>(i, j)[2] = 0;
+							}
+						}
+					}
+					break;
+				case 1: // 녹
+					if (cH >= 120 - sensity && cH <= 120 + sensity) {	// 색이 녹색 범위 안.
+						if (cS >= 15) {		
+							if (cV >= 15) {	
+								camMat.at<Vec3b>(i, j)[0] = 0;
+								camMat.at<Vec3b>(i, j)[1] = 0;
+								camMat.at<Vec3b>(i, j)[2] = 0;
+							}
+						}
+					}
+					break;
+				case 2: // 적
+					if ((cH >= 0 && cH <= 0 + sensity) || (cH >= 360 - sensity && cH <= 360)) {		// 색이 빨간색 범위 안.
+						if (cS >= 15) {		
+							if (cV >= 15) {	
+								camMat.at<Vec3b>(i, j)[0] = 0;
+								camMat.at<Vec3b>(i, j)[1] = 0;
+								camMat.at<Vec3b>(i, j)[2] = 0;
+							}
+						}
+					}
+					break;
+				case 3: // 백
+					if (cS <= 30) {
+						if (cV >= 40) {
+							camMat.at<Vec3b>(i, j)[0] = 0;
+							camMat.at<Vec3b>(i, j)[1] = 0;
+							camMat.at<Vec3b>(i, j)[2] = 0;
+						}
+					}
+				default:
+					break;
+			}
+		}
+	}
+
+	// 사이즈 재조정.
+	Size videoSize(g_curFrame->cols, g_curFrame->rows);
+	switch (chromaSize) {
+		default:
+		case 0:			// 소
+			resize(camMat, camMat, Size(videoSize.width/4, videoSize.height/4));
+			break;
+		case 1:			// 중
+			resize(camMat, camMat, Size(videoSize.width/2, videoSize.height/2));
+			break;
+		case 2:			// 영상 크기
+			resize(camMat, camMat, Size(videoSize.width, videoSize.height));
+			break;
+	}
+
+	// 크로마키와 사이즈 적용 후 영상.
+	if (isTestMode == true) imshow("camChromaTest", camMat);
+
+	// 원본 영상에 위치, 투명도에 맞게 씌워줌.
+	int x, y;								// x, y: 원본 영상에서의 크로마키 좌측 상단 좌표.
+	Mat cFrame = *g_curFrame;				// 현재 프래임과 링크.
+	int frameWidth, frameHeight;
+	frameWidth = cFrame.cols;
+	frameHeight = cFrame.rows;
+	float alpha, beta;						// alpha: 원본 영상의 크로마키 적용 범위에 곱해줄 값.
+	
+	if (chromaAlpha == 0) alpha = 0.33;
+	else if (chromaAlpha == 1) alpha = 0.66;
+	else if (chromaAlpha == 2) alpha = 0.00;
+	beta = 1.0 - alpha;
+	if (chromaPos == 0) { // 크로마키가 좌측 상단에 위치할 경우.
+		x = 0;
+		y = 0;	
+	}
+	else if (chromaPos == 1) { // 우측 상단.
+		x = frameWidth - camMat.cols;
+		y = 0;
+	}
+	else if (chromaPos == 2) { // 좌측 하단.
+		x = 0;
+		y = frameHeight - camMat.rows;
+	}
+	else if (chromaPos == 3) { // 우측 하단.
+		x = frameWidth - camMat.cols;
+		y = frameHeight - camMat.rows;
+	}
+	else if (chromaPos == 4) { // 가운데.
+		x = frameWidth / 2 - camMat.cols / 2;
+		y = frameHeight / 2 - camMat.rows / 2;
+	}
+	// 원본 영상에서 해당 위치만 링크한 좌표.
+	cFrame = cFrame(Rect(x, y, camMat.cols, camMat.rows));
+	if (isTestMode == true) imshow("cFrameTest", cFrame);
+	if (isTestMode == true) {
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_RED, CR_BLACK);
+		printf("크로마키 시작 좌표 => x: %d, y: %d", x, y);
+	}
+	// 원본에 그리기 작업.
+	// addWeighted(cFrame, alpha, camMat, beta, 0, cFrame);
+	// cFrame = cFrame * alpha + camMat * beta;
+	
+	for (int j = 0; j < camMat.cols; j++) {
+		for (int i = 0; i < camMat.rows; i++) {
+			if (camMat.at<Vec3b>(i, j)[0] != 0 && camMat.at<Vec3b>(i, j)[1] != 0 && camMat.at<Vec3b>(i, j)[2] != 0)
+				for (int k = 0; k < 3; k++)
+					(cFrame.at<Vec3b>(i, j)[k]) = ((int)(((cFrame.at<Vec3b>(i, j)[k]) * alpha) + ((camMat.at<Vec3b>(i, j)[k]) * beta))) % 256;
+		}
+	}
+
+	// 잡음 제거를 위한 약간의 가우시안 블러.
+	GaussianBlur(cFrame, cFrame, Size(3, 3), 3.0);
+}
+
+// 단축키 액션.
+void keyAction(char ch) {
+	Mat copyFrame;
+	switch (ch) {
+		case ' ':	// 스페이스 바: 영생 재생 / 정지.
+			(isPlay == true) ? (isPlay = false) : (isPlay = true);
+			if (isPlay == false) {
+				copyFrame = g_curFrame->clone();
+				for (int i = 1; i < 4; i++) { // 갈무리 및 구역을 화면에 그려줌.
+					Scalar color;
+					if (i == 1) {
+						color = Scalar(0, 255, 0);
+					}
+					else if (i == 2) {
+						color = Scalar(255, 0, 255);
+					}
+					else if (i == 3) {
+						color = Scalar(255, 0, 0);
+					}
+					rectangle(copyFrame, roiLoc[i].locPt, Point(roiLoc[i].locPt.x + roiLoc[i].locSize.width, roiLoc[i].locPt.y + roiLoc[i].locSize.height), color);
+				}
+				imshow("MyVideoPlayer", copyFrame);
+			}
+			break;
+	case 'Z':	// 영상 천천히 (-2~-1).
+	case 'z':
+		(g_playSpeed > -2) ? (g_playSpeed--) : (g_playSpeed = -2);
+		break;
+	case 'X':
+	case 'x':	// 영상 빠르게. (1~2)
+		(g_playSpeed < 2) ? (g_playSpeed++) : (g_playSpeed = 2);
+		break;
+	case 'F':	// 영상 정보 출력.
+	case 'f':
+		(g_showInfo == true) ? (g_showInfo = false) : (g_showInfo = true);
+		break;
+	case 'S':	// 영상 삭제 시작.
+	case 's':
+		if (isCut == false) {
+			clearMsg();
+			MoveCur(3, 1);
+			ChangeCR(CR_CYAN, CR_BLACK);
+			printf("영상 삭제 시작 지점(Frame: %d)", g_videoFramePos);
+			isCut = true;
+		}
+		break;
+	case 'E':	// 영상 삭제 종료.
+	case 'e':
+		if (isCut == true) {
+			clearMsg();
+			MoveCur(3, 1);
+			ChangeCR(CR_CYAN, CR_BLACK);
+			printf("영상 삭제 종료 지점(Frame: %d)", g_videoFramePos);
+			isCut = false;
+		}
+		break;
+	case '`':	// 갈무리 / 구역 선택.
+		g_cropLoc = 0;
+		break;
+	case '1':
+		(g_cropLoc == 1) ? (g_cropLoc = 0) : (g_cropLoc = 1);
+		break;
+	case '2':
+		(g_cropLoc == 2) ? (g_cropLoc = 0) : (g_cropLoc = 2);
+		break;
+	case '3':
+		(g_cropLoc == 3) ? (g_cropLoc = 0) : (g_cropLoc = 3);
+		break;
+	case 'O':	// ROI normal image.
+	case 'o':
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		printf("해당 영역에 아무런 효과도 주지 않습니다.");
+		roiLoc[g_cropLoc].effectId = 0;
+		break;
+	case 'K':	// ROI laplacian
+	case 'k':
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		printf("해당 영역에 라플레시안 효과를 입힙니다.");
+		(roiLoc[g_cropLoc].effectId == 1) ? (roiLoc[g_cropLoc].effectId = 0) : (roiLoc[g_cropLoc].effectId = 1);
+		break;
+	case 'M':	// ROI gaussian blur
+	case 'm':
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		printf("해당 영역에 가우시안 블러 효과를 입힙니다.");
+		(roiLoc[g_cropLoc].effectId == 2) ? (roiLoc[g_cropLoc].effectId = 0) : (roiLoc[g_cropLoc].effectId = 2);
+		break;
+	case 'P':	// ROI shrpen image
+	case 'p':
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		printf("해당 영역을 선명하게 합니다.");
+		(roiLoc[g_cropLoc].effectId == 3) ? (roiLoc[g_cropLoc].effectId = 0) : (roiLoc[g_cropLoc].effectId = 3);
+		break;
+	case 'L':	// ROI invert image
+	case 'l':
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		printf("해당 영역을 반전시킵니다.");
+		(roiLoc[g_cropLoc].effectId == 4) ? (roiLoc[g_cropLoc].effectId = 0) : (roiLoc[g_cropLoc].effectId = 4);
+		break;
+	case 'Y':	// Chroma Key
+	case 'y':
+		(useChromaKey == false) ? (useChromaKey = true) : (useChromaKey = false);
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		if (useChromaKey == true) {
+			printf("크로마키를 사용합니다.");
+			g_videoCam.open(0);					// 카메라 오픈.
+			g_videoCam.set(CV_CAP_PROP_FPS, 24.0);
+		}
+		else {
+			printf("크로마키를 종료합니다.");
+			g_videoCam.release();				// 카메라 클로즈.
+		}
+		break;
+	case '+':	// 크로마키 사이즈.
+		(chromaSize < 2) ? (chromaSize++) : (chromaSize = 0);		// 크로마키 적용 사이즈. (0: 작게, 1: 중간, 2: 크게)
+		break;
+	case '*':	// 크로마키 투명도.
+		(chromaAlpha < 2) ? (chromaAlpha++) : (chromaAlpha = 0);	// 크로마키 투명도. (0: 33%투명, 1: 66%투명, 2: 0%투명)
+		break;
+	case '/':	// 크로마키 배경색.
+		(keyBaseColor < 3) ? (keyBaseColor++) : (keyBaseColor = 0);	// 크로마키 베이스 색. (0: 청, 1: 녹, 2: 적, 3: 백)
+		break;
+	case '-':	// 크로마키 위치.
+		(chromaPos < 4) ? (chromaPos++) : (chromaPos = 0);	// 크로마키 위치. ( 0: 좌측 상단, 1: 우측 상단, 2: 좌측 하단, 3: 우측 하단, 4: 가운데 )
+		break;
+	case '.':	// 크로마키 민감도.
+		(chromaSensity < 180) ? (chromaSensity+=10) : (chromaSensity = 30);
+		break;
+	case 27:	// ESC 누를 시 프로그램 종료.
+		clearMsg();
+		MoveCur(3, 1);
+		ChangeCR(CR_CYAN, CR_BLACK);
+		printf("편집된 영상을 저장하고 프로그램을 종료합니다.", g_videoFramePos);
+		if (isTestMode == true) { // 영상의 남은 부분을 영상이 끝날 때 까지 기록. (프레임 대기시간이 없이 빠르게 진행 - 그래도 상당시간 기다려야 합니다. - 테스트 모드 전용.)
+			while (1) {
+				if (inVideo.read(*g_curFrame) != NULL) {
+					outVideo.write(*g_curFrame);
+				}
+				else {
+					break;
+				}
+			}
+		}
+		Sleep(2000);
+		inVideo.release();
+		outVideo.release();
+		cutVideo.release();
+		g_videoCam.release();
+		exit(1);
+		break;
+	case '0':
+		if (isTestMode == true) {
+			clearMsg();
+			MoveCur(3, 1);
+			ChangeCR(CR_RED, CR_BLACK);
+			printf("테스트 모드를 비활성화합니다.", g_videoFramePos);
+			isTestMode = false;
+		}
+		else {
+			clearMsg();
+			MoveCur(3, 1);
+			ChangeCR(CR_RED, CR_BLACK);
+			printf("테스트 모드를 활성화합니다.", g_videoFramePos);
+			isTestMode = true;
+		}
+	}
+}
+
+// 메인.
+int main() {
+	system("title MyVideoPlayer");	// 콘솔 이름 수정.
+	system("mode con cols=115 lines=28");	// 콘솔 크기 조정.
+	
+	// 변수 초기화.
+	chromaSensity = 60;
+
+	// 콘솔 UI 생성.
+	drawCUI();
+
+	clearMsg();
+	MoveCur(3, 1); 
+	Cprintf("MyVideoPlayer에 오신 것을 환영합니다!", CR_CYAN, CR_BLACK);
+	Sleep(2000);
+
+	while (1) {
+		clearMsg();
+		MoveCur(3, 1);
+		SetCurType(CT_NORMAL);
+		Cprintf(".avi 파일명을 입력해 주세요: ", CR_CYAN, CR_BLACK);
+		scanf("%s", inVideoName);
+		strcat(inVideoName, ".avi");
+		strcat(inVideoDir, inVideoName);
+		strcpy(inVideoName, inVideoDir);
+		SetCurType(CT_HIDE);
+		MoveCur(3, 1);
+		// 영상을 열고 올바른지 확인.
+		inVideo.open(inVideoName);		// 영상 열기.
+		clearMsg();
+		if (!(inVideo.isOpened())) {
+			MoveCur(3, 1);
+			ChangeCR(CR_CYAN, CR_BLACK);
+			printf("%s를(을) 열 수 없습니다.", inVideoName);
+			strcpy(inVideoName, "");
+			strcpy(inVideoDir, "D:\\dip\\avis\\");
+			_getch();
+		}
+		else
+			break;
+	}
+
+	// 영상 파일의 정보를 가져옴.
+	CvSize inVideoSize;
+	inVideoSize.width = inVideo.get(CV_CAP_PROP_FRAME_WIDTH);		 // 영상의 폭.
+	inVideoSize.height = inVideo.get(CV_CAP_PROP_FRAME_HEIGHT);		 // 영상의 높이.
+	double inVideoFPS = inVideo.get(CV_CAP_PROP_FPS);				 // 영상의 초당 프레임.
+	double inVideoTotalFrame = inVideo.get(CV_CAP_PROP_FRAME_COUNT); // 영상의 총 프레임 수.
+	double inVideoPlayTime = (inVideoTotalFrame / inVideoFPS);		 // 영상 총 재생 시간.
+	g_videoFramePos = inVideo.get(CV_CAP_PROP_POS_FRAMES);
+
+	// 영상 정보 출력.
+	showVideoInfo();
+
+	// 영상 재생을 위한 윈도우 생성.
+	namedWindow("MyVideoPlayer", CV_WINDOW_NORMAL);														// 영상 출력을 위한 윈도우 생성.
+	createTrackbar("프레임", "MyVideoPlayer", &g_videoFramePos, inVideoTotalFrame, onTrackbarSlide);	// 윈도우에 트렉바를 붙여줌.
+	setMouseCallback("MyVideoPlayer", onMouseClick);													// 윈도우에 마우스 클릭 이벤트를 붙여줌.
+
+	// 영상 재생을 위한 객체 선언.
+	Mat inVideoFrame;
+	g_curFrame = &inVideoFrame;
+
+	// 영상 재생 시작.
+	while (1) {
+		renewCUI(); // CUI 갱신.
+
+		// 영상 저장을 위한 객체 설정 (cutHasbeenUse 때문에 최초 1회만 실행됨.)
+		if (cutHasbeenUse == false && isCut == true) {
+			outVideo.open("output_cut.avi", CV_FOURCC('D', 'I', 'V', 'X'), inVideoFPS, inVideoSize);
+			cutVideo.open("output.avi", CV_FOURCC('D', 'I', 'V', 'X'), inVideoFPS, inVideoSize);
+			cutHasbeenUse = true;
+		}
+
+		if (isPlay == true) {
+			if (inVideo.read(inVideoFrame) == NULL) { // 영상의 다음 프레임 정보를 가져오고 NULL이면 영상 종료.
+				clearMsg();
+				MoveCur(3, 1);
+				ChangeCR(CR_CYAN, CR_BLACK);
+				printf("영상이 종료되었습니다. 아무 키나 누르면 프로그램을 종료합니다.");
+				isPlay = false;
+				_getch();
+				break;
+			}
+		}
+		
+		// 영상 ROI 효과 적용.
+		if (isPlay == true)
+			roiEffect(g_curFrame, false);
+
+		// 크로마키 영상 출력.
+		if (useChromaKey == true )
+			chromaKey();
+
+		// 영상 출력 및 트랙바 조정.
+		if (isPlay == true) {
+			imshow("MyVideoPlayer", inVideoFrame);						// 윈도우에 영상 출력.
+			g_videoFramePos = inVideo.get(CV_CAP_PROP_POS_FRAMES);		// 현재 화면의 프레임을 받아 옴.
+			setTrackbarPos("프레임", "MyVideoPlayer", g_videoFramePos);	// 해당 위치로 트랙바를 Set.
+		}
+
+		// 원본에서 자른부분을 제외한 영상 저장.
+		if (isCut == false && isPlay == true)
+			outVideo.write(inVideoFrame);
+
+		// 원본에서 잘라낸 영상 저장.
+		if (isCut == true && isPlay == true) {
+			cutVideo.write(inVideoFrame);
+		}
+
+		// 영상 속도 변경.
+		if (g_playSpeed == 0) inVideoFPS = inVideo.get(CV_CAP_PROP_FPS);				// Normal speed.
+		else if (g_playSpeed == 2) inVideoFPS = inVideo.get(CV_CAP_PROP_FPS) * 3.0;		// Very Fast.
+		else if (g_playSpeed == 1) inVideoFPS = inVideo.get(CV_CAP_PROP_FPS) * 2.0;		// Fast.
+		else if (g_playSpeed == -2) inVideoFPS = inVideo.get(CV_CAP_PROP_FPS) / 3.0;	// Very Slow.
+		else if (g_playSpeed == -1) inVideoFPS = inVideo.get(CV_CAP_PROP_FPS) / 2.0;	// Slow.
+
+		// 영상 정보 출력.
+		showVideoInfo();
+
+		// 프레임 대기 및, 키보드 입력 처리.
+		char ch;
+		keyAction((ch = waitKey(1000 / inVideoFPS)));	// 윈도우 창.
+		if (_kbhit()) {									// 콘솔 창.
+			ch = _getch();
+			keyAction(ch);
+		}
+	}
+
+	inVideo.release();
+	outVideo.release();
+	cutVideo.release();
+	g_videoCam.release();
+	return 0;
+}

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.spring.yesorno.dao.IVoteProgressDao"> 	
+	<select id="selectVoteProgressList" resultType="com.spring.yesorno.dto.VoteProgressDto">
+		SELECT * FROM vote_progresses_tb
+		WHERE VOTE_BOARD_ID=
+		<foreach collection="list" item="boardId" separator="OR">
+			#{boardId}
+		</foreach>
+		;
+	</select>
+	
+	<insert id="insertVoteProgress">
+		INSERT INTO vote_progresses_tb(VOTE_PROGRESS_ID,VOTE_BOARD_ID,VOTER_MEMBER_ID,VOTE_RESULT,VOTE_DATE)
+		VALUES(0,#{voteBoardId},#{voterMemberId},#{voteResult},#{voteDate});
+	</insert>
+</mapper>

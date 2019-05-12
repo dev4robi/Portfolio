@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<bean id="messageSource" class="org.springframework.context.support.ReloadableResourceBundleMessageSource">
+		<property name="basenames">
+			<!-- 메세지 파일의 위치를 지정 (message_언어.properties 파일) -->
+			<list>
+				<value>classpath:message/message</value>
+			</list>
+		</property> 
+		<!-- 파일의 기본 인코딩을 지정 -->
+		<property name="defaultEncoding" value="UTF-8"/>
+		<!-- properties 파일이 변경되었는지 확인하는 주기(초) 지정 -->
+		<property name="cacheSeconds" value="60"/>
+	</bean>
+
+	<bean id="localeResolver" class="org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver"/>
+	<!-- 
+		1.[AcceptHeaderLocaleResolver]
+		웹 브라우저가 전송한 Accept-Language 헤더로부터 Locale 선택. setLocale() 메서드를 지원하지 않음
+		
+		2.[CookieLocaleResolver]
+		쿠키를 이용해서 Locale 정보를 구함. setLocale() 메서드는 쿠키에 Locale 정보를 저장
+		
+		3.[SessionLocaleResolver]
+		세션으로부터 Locale 정보를 구함. setLocale() 메서드는 세션에 Locale 정보를 저장
+		
+		4.[FixedLocaleResolver]
+		웹 요청에 상관없이 특정한 Locale로 설정. setLocale() 메서드를 지원하지 않음
+	-->
+
+</beans>

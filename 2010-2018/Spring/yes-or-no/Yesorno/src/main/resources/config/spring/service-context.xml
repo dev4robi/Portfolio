@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+	<!-- Member Service -->
+	<bean id="memberService" class="com.spring.yesorno.service.MemberService"/>
+	
+	<!-- VoteBoard Service -->
+	<bean id="voteBoardService" class="com.spring.yesorno.service.VoteBoardService">
+		<constructor-arg name="dataPerPage" value="8"/> <!-- 한 페이지에 표시할 게시글의 수 -->
+	</bean>
+	
+	<!-- VoteProgressService -->
+	<bean id="voteProgressService" class="com.spring.yesorno.service.VoteProgressService"/>
+
+	<!-- CommentService -->
+	<bean id="commentService" class="com.spring.yesorno.service.CommentService"/>
+
+</beans>

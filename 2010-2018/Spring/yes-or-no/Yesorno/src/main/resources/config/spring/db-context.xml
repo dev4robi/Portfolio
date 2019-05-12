@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans  xmlns="http://www.springframework.org/schema/beans"
+		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		xmlns:tx="http://www.springframework.org/schema/tx"
+		xsi:schemaLocation="
+		http://www.springframework.org/schema/beans
+		http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/tx
+		http://www.springframework.org/schema/tx/spring-tx.xsd">
+
+	<!-- Profile:Devlopment -->
+	<beans profile="dev">
+		<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource" destroy-method="close">
+			<!-- DB-Connection Setting -->
+			<property name="driverClass" value="com.mysql.jdbc.Driver"/>
+			<property name="jdbcUrl" value="jdbc:mysql://localhost/yesorno?characterEncoding=utf8"/>
+			<property name="user" value="yesorno_admin"/>
+			<property name="password" value="yesorno_admin_0305"/>
+			<!-- Connection Pool Setting -->
+			<!-- 더 많은 프로퍼티 정보는 [http://ww w.mchange.com/projects/c3p3/] -->
+			<property name="initialPoolSize" value="3"/>				<!-- 초기 커넥션 풀 크기 -->
+			<property name="maxPoolSize" value="100"/>					<!-- 최대 커넥션 플 크기 -->
+			<property name="minPoolSize" value="3"/>					<!-- 최소 커넥션 풀 크기 -->
+			<property name="maxIdleTime" value="600"/>					<!-- value초 동안  사용되지 않는 커넥션 제거 -->
+			<property name="checkoutTimeout" value="0"/>				<!-- 풀에서 커넥션을 가져올 때 기다리는 최대 시간(ms), 초과 시 SQLException 발생 -->
+			<property name="idleConnectionTestPeriod" value="300"/>		<!-- value초 주기로 커넥션 검사 -->
+		</bean>
+	</beans>
+	
+	<!-- Profile:Service -->
+	<beans profile="service">
+		<!-- Spring JDBC -->
+		<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource" destroy-method="close">
+			<!-- DB-Connection Setting -->
+			<property name="driverClass" value="com.mysql.jdbc.Driver"/>
+			<property name="jdbcUrl" value="jdbc:mysql://localhost/yesorno?characterEncoding=utf8"/>
+			<property name="user" value="yesorno_admin"/>
+			<property name="password" value="yesorno_admin_0305"/>
+			<!-- Connection Pool Setting (더 많은 프로퍼티 정보는 [http://www.mchange.com/projects/c3p3/]) -->
+			<property name="initialPoolSize" value="10"/>				<!-- 초기 커넥션 풀 크기 -->
+			<property name="maxPoolSize" value="100"/>					<!-- 최대 커넥션 플 크기 -->
+			<property name="minPoolSize" value="10"/>					<!-- 최소 커넥션 풀 크기 -->
+			<property name="maxIdleTime" value="600"/>					<!-- value초 동안  사용되지 않는 커넥션 제거 -->
+			<property name="checkoutTimeout" value="5000"/>				<!-- 풀에서 커넥션을 가져올 때 기다리는 최대 시간(ms), 초과 시 SQLException 발생 -->
+			<property name="idleConnectionTestPeriod" value="1000"/>	<!-- value초 주기로 커넥션 검사 -->
+		</bean>
+	</beans>
+
+</beans>

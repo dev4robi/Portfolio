@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org/DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.spring.yesorno.dao.IMemberDao"> 	
+
+	<select id="selectMemberNickname" resultType="string">
+		SELECT MEMBER_NICKNAME FROM members_tb
+		WHERE MEMBER_ID=#{param1};
+	</select>
+
+	<select id="memberSelect" parameterType="com.spring.yesorno.dto.MemberDto" resultType="com.spring.yesorno.dto.MemberDto">
+		SELECT * FROM members_tb
+		WHERE 
+		<choose>
+			<when test="memberId != 0">MEMBER_ID=#{memberId}</when>
+			<when test="#{memberEmail} != null">MEMBER_EMAIL=#{memberEmail}</when>
+			<otherwise>MEMBER_NICKNAME=#{memberNickname}</otherwise>
+		</choose>
+		;
+	</select>
+ 
+	<insert id="memberInsert">
+ 		INSERT INTO members_tb(MEMBER_ID,MEMBER_EMAIL,MEMBER_NICKNAME,MEMBER_JOIN_DATE,MEMBER_LAST_LOGIN_DATE,MEMBER_TOKEN,MEMBER_GRADE_ID) 
+		VALUES(0,#{memberEmail},#{memberNickname},#{memberJoinDate},null,#{memberToken},#{memberGradeId});
+	</insert>
+	
+	<update id="memberDeregistrationUpdate">
+		UPDATE members_tb SET MEMBER_GRADE_ID=#{memberGradeId},MEMBER_LAST_LOGIN_DATE=#{memberLastLoginDate}
+		WHERE MEMBER_EMAIL=#{memberEmail};
+	</update>
+
+	<update id="memberInfoUpdate">
+		UPDATE members_tb SET MEMBER_NICKNAME=#{memberNickname}
+		WHERE MEMBER_EMAIL=#{memberEmail};
+	</update>
+	
+	<update id="memberLoginUpdate">
+		UPDATE members_tb SET MEMBER_LAST_LOGIN_DATE=#{memberLastLoginDate}
+		WHERE MEMBER_EMAIL=#{memberEmail};
+	</update>
+
+<!--
+	<delete id="deleteDao">
+		DELETE FROM MINI_BOARD WHERE mId=#{param1}
+	</delete>
+-->
+</mapper>
